@@ -57,6 +57,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    toolRegistry.setArtifactContentGetter(getContent);
+  }, [getContent]);
+
+  useEffect(() => {
     saveChatMessages(messages);
   }, [messages]);
 
