@@ -7,7 +7,7 @@ export function useSandboxExecutor(sandboxRef: React.RefObject<HTMLIFrameElement
     timeout: ReturnType<typeof setTimeout>;
   }>>(new Map());
 
-  const executeInSandbox = useCallback((code: string, timeout: number = 10000): Promise<{
+  const executeInSandbox = useCallback((code: string, timeout: number = 10000, deps?: Record<string, unknown>): Promise<{
     result?: unknown;
     error?: string;
     duration: number;
@@ -50,7 +50,8 @@ export function useSandboxExecutor(sandboxRef: React.RefObject<HTMLIFrameElement
         sandboxRef.current.contentWindow.postMessage({
           type: 'SANDBOX_EXECUTE',
           code,
-          timeout
+          timeout,
+          deps
         }, '*');
       } else {
         window.removeEventListener('message', handleMessage);

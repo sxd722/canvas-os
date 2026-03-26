@@ -12,7 +12,7 @@ import { toolRegistry } from './services/toolRegistry';
 import { useArtifacts } from './hooks/useArtifacts';
 import { ToolTester } from './services/toolTester';
 import type { ChatMessage, CanvasNode, LLMConfig } from '../shared/types';
-import type { DAGNodeParams, DAGPlan } from '../shared/dagSchema';
+import type { DAGPlan } from '../shared/dagSchema';
 import { generateId } from '../shared/types';
 import { getLLMConfig, saveLLMConfig, getCanvasNodes, saveCanvasNodes, getChatMessages, saveChatMessages } from '../shared/storage';
 
@@ -35,7 +35,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const sandboxRef = useRef<HTMLIFrameElement>(null);
   const { executeInSandbox } = useSandboxExecutor(sandboxRef);
-  const { execute, subscribe } = useDagEngine();
+  const { subscribe } = useDagEngine();
   const { getMetadata, getContent } = useArtifacts(canvasNodes);
   const toolTesterRef = useRef<ToolTester | null>(null);
 
@@ -143,44 +143,14 @@ export default function App() {
 
   const handleToolCall = useCallback(async (toolCall: { name: string; arguments: Record<string, unknown> }) => {
     try {
+      await toolRegistry.executeTool(toolCall);
+      
       if (toolCall.name === 'execute_dag') {
-        const rawNodes = toolCall.arguments.nodes as Array<{
-          id: string;
-          type: 'llm-call' | 'js-execution' | 'web-operation';
-          params: DAGNodeParams;
-          dependencies: string[];
-        }>;
-
-        const dagNodes = rawNodes.map(node => ({
-          ...node,
-          status: 'pending' as const
-        }));
-
-        const dagPlan = await execute(dagNodes, `chat-${Date.now()}`);
-        
-        const canvasDagNodes: CanvasNode[] = dagNodes.map((node, index) => ({
-          id: `dag-node-${node.id}`,
-          type: 'dag-node' as const,
-          content: {
-            nodeId: node.id,
-            nodeType: node.type,
-            params: node.params,
-            dependencies: node.dependencies,
-            status: 'pending'
-          },
-          position: { x: 100 + index * 250, y: 100 },
-          size: { width: 220, height: 150 },
-          title: `DAG: ${node.id}`,
-          createdAt: Date.now(),
-          source: { type: 'dag', ref: dagPlan.id }
-        }));
-
-        setCanvasNodes(prev => [...prev, ...canvasDagNodes]);
-
+        const nodes = toolCall.arguments.nodes as unknown[];
         const message: ChatMessage = {
           id: generateId(),
           role: 'assistant',
-          content: `Created DAG plan with ${rawNodes.length} nodes. Executing...`,
+          content: `Executing DAG plan with ${nodes?.length || 0} nodes...`,
           timestamp: Date.now()
         };
         setMessages(prev => [...prev, message]);
@@ -244,7 +214,7 @@ export default function App() {
       };
       setMessages(prev => [...prev, errorMessage]);
     }
-  }, [execute, canvasNodes.length, getContent]);
+  }, [canvasNodes.length, getContent]);
 
   const handleSendMessage = useCallback(async (content: string) => {
     const userMessage: ChatMessage = {
@@ -567,6 +537,7 @@ export default function App() {
 
         <iframe
           ref={sandboxRef}
+          id="sandbox-iframe"
           src="sandbox.html"
           sandbox="allow-scripts"
           className="hidden"

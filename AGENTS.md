@@ -1,4 +1,4 @@
-# canvas-coworker Development Guidelines
+﻿# canvas-coworker Development Guidelines
 
 Auto-generated from all feature plans. Last updated: 2026-03-26
 
@@ -8,6 +8,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-26
 - Tailwind CSS 3.x
 - Chrome Extensions MV3 APIs
 - chrome.storage.local (persistent), chrome.storage.session (ephemeral chat)
+- [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION] (003-fix-dag-architecture)
+- [if applicable, e.g., PostgreSQL, CoreData, files or N/A] (003-fix-dag-architecture)
 
 ## Project Structure
 
@@ -85,10 +87,9 @@ window.__canvasNodes // Current canvas state
 | Artifacts | `src/popup/hooks/useArtifacts.ts` |
 
 ## Recent Changes
+- 003-fix-dag-architecture: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
 - 002-agentic-ide-features: Completed Phases 5, 6, and 7 (Polish)
 - Added ToolTester for CDP-based tool testing
-- Added error boundaries for DAG execution
-- Added deleted artifact handling in @mentions
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
