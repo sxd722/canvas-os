@@ -39,6 +39,11 @@ export class ToolTester {
   getAvailableTools() {
     return [
       {
+        name: 'list_artifacts',
+        description: 'List all artifacts on the canvas with their IDs, titles, types, and summaries',
+        parameters: {}
+      },
+      {
         name: 'open_web_view',
         description: 'Open a URL as an embedded web view in the canvas',
         parameters: {
@@ -80,6 +85,9 @@ export class ToolTester {
       let result: ToolTestResult;
 
       switch (toolName) {
+        case 'list_artifacts':
+          result = await this.testListArtifacts();
+          break;
         case 'open_web_view':
           result = await this.testOpenWebView(args);
           break;
@@ -112,6 +120,69 @@ export class ToolTester {
       
       return result;
     }
+  }
+
+  private async testListArtifacts(): Promise<ToolTestResult> {
+    return new Promise((resolve) => {
+      this.setCanvasNodes(prev => {
+        const artifacts = prev.map(node => ({
+          id: node.id,
+          title: node.title || 'Untitled',
+          type: node.type,
+          summary: this.getSummary(node),
+          size: this.getSize(node)
+        }));
+
+        this.setMessages(messages => [...messages, {
+          id: generateId(),
+          role: 'assistant',
+          content: `[TEST] Listed ${artifacts.length} artifacts:\n${artifacts.map(a => `- ${a.title} (${a.type})`).join('\n')}`,
+          timestamp: Date.now()
+        }]);
+
+        resolve({
+          success: true,
+          toolName: 'list_artifacts',
+          duration: 0,
+          output: { artifacts }
+        });
+        
+        return prev;
+      });
+    });
+  }
+
+  private getSummary(node: CanvasNode): string {
+    if (typeof node.content === 'string') {
+      return node.content.substring(0, 100);
+    }
+    if (typeof node.content === 'object' && node.content !== null) {
+      const contentObj = node.content as Record<string, unknown>;
+      if (contentObj.content && typeof contentObj.content === 'string') {
+        return contentObj.content.substring(0, 100) as string;
+      }
+      if (contentObj.summary) {
+        return String(contentObj.summary).substring(0, 100);
+      }
+      if (contentObj.filename) {
+        return `File: ${contentObj.filename}`;
+      }
+    }
+    return `${node.type} artifact`;
+  }
+
+  private getSize(node: CanvasNode): number {
+    if (typeof node.content === 'string') {
+      return node.content.length;
+    }
+    if (typeof node.content === 'object' && node.content !== null) {
+      const contentObj = node.content as Record<string, unknown>;
+      if (contentObj.content && typeof contentObj.content === 'string') {
+        return (contentObj.fullLength as number) || (contentObj.content as string).length;
+      }
+      return JSON.stringify(node.content).length;
+    }
+    return 0;
   }
 
   private async testOpenWebView(args: Record<string, unknown>): Promise<ToolTestResult> {
