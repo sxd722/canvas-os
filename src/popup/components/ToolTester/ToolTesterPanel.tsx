@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { ToolTester, ToolTestResult } from '../../services/toolTester';
 import type { CanvasNode, ChatMessage } from '../../../shared/types';
 
@@ -49,8 +49,7 @@ export default function ToolTesterPanel({ canvasNodes, setCanvasNodes, setMessag
     }
   }, [selectedTool]);
 
-  const toolTester = useMemo(() => new ToolTester(setCanvasNodes, setMessages), [toolTester]);
-
+  const toolTester = useMemo(() => new ToolTester(setCanvasNodes, setMessages), [setCanvasNodes, setMessages]);
   const availableTools = toolTester.getAvailableTools();
 
   const runSingleTest = useCallback(async () => {

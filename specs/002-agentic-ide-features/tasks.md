@@ -229,7 +229,7 @@
    - **Self-Test**: Type @, press Arrow Down, verify selection changes, press Enter to select
 - [X] T050 Add maximum concurrent DAG node limit (4) in `useDagEngine.ts`
    - **Self-Test**: Create DAG with 6 independent nodes, verify max 4 run at once
-- [ ] T051 Run full integration test via CDP: load file, @mention, execute DAG, open web view
+- [X] T051 Run full integration test via CDP: load file, @mention, execute DAG, open web view
    - **Self-Test**: Complete workflow executes without errors, all features work together
 - [X] T052 Update AGENTS.md with new features and testing commands
    - **Self-Test**: Verify AGENTS.md includes Phase 2 feature documentation
