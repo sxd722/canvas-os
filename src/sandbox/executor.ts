@@ -2,6 +2,7 @@ interface ExecuteMessage {
   type: 'SANDBOX_EXECUTE';
   code: string;
   timeout: number;
+  deps?: Record<string, unknown>;
 }
 
 interface ResultMessage {
@@ -26,21 +27,25 @@ function safeStringify(value: unknown): string {
   }
 }
 
-function executeCode(code: string): { result?: unknown; error?: string; duration: number } {
+function executeCode(code: string, deps?: Record<string, unknown>): { result?: unknown; error?: string; duration: number } {
   const startTime = performance.now();
   
   try {
-    const val = (codeToRun: string) => {
+    const val = (codeToRun: string, dependencies?: Record<string, unknown>) => {
       try {
-        const fn = new Function(`return (${codeToRun})`);
-        return fn();
+        const depKeys = dependencies ? Object.keys(dependencies) : [];
+        const depValues = dependencies ? Object.values(dependencies) : [];
+        const fn = new Function('deps', ...depKeys, `return (${codeToRun})`);
+        return fn(dependencies, ...depValues);
       } catch {
-        const fn = new Function(codeToRun);
-        return fn();
+        const depKeys = dependencies ? Object.keys(dependencies) : [];
+        const depValues = dependencies ? Object.values(dependencies) : [];
+        const fn = new Function('deps', ...depKeys, codeToRun);
+        return fn(dependencies, ...depValues);
       }
     };
     
-    const result = val(code);
+    const result = val(code, deps);
     const duration = performance.now() - startTime;
     
     return { result, duration };
@@ -56,7 +61,7 @@ function executeCode(code: string): { result?: unknown; error?: string; duration
 window.addEventListener('message', (event: MessageEvent<ExecuteMessage>) => {
   if (event.data?.type !== 'SANDBOX_EXECUTE') return;
   
-  const { code, timeout } = event.data;
+  const { code, timeout, deps } = event.data;
   
   const timeoutId = setTimeout(() => {
     const result: ResultMessage = {
@@ -69,7 +74,7 @@ window.addEventListener('message', (event: MessageEvent<ExecuteMessage>) => {
   }, timeout);
 
   try {
-    const executionResult = executeCode(code);
+    const executionResult = executeCode(code, deps);
     clearTimeout(timeoutId);
     
     const result: ResultMessage = {

@@ -320,53 +320,93 @@ export class ToolRegistry {
       return this.executeWebOpViaBackground(node, depResults)
     }
 
-    return new Promise((resolve, reject) => {
-      let workerScript: string
+    if (node.type === 'js-execution') {
+      const params = node.params as { code: string; timeout?: number }
+      const codeWithDeps = this.interpolateCodeWithDeps(params.code, depResults)
+      
+      return this.executeInSandbox(codeWithDeps, params.timeout || 5000)
+    }
 
-      switch (node.type) {
-        case 'llm-call':
-          workerScript = new URL('../workers/llmCallWorker.ts', import.meta.url).href
-          break
-        case 'js-execution':
-          workerScript = new URL('../workers/jsExecWorker.ts', import.meta.url).href
-          break
-        default:
-          reject(new Error(`Unknown node type: ${node.type}`))
-          return
-      }
+    if (node.type === 'llm-call') {
+      return new Promise((resolve, reject) => {
+        const workerScript = new URL('../workers/llmCallWorker.ts', import.meta.url).href
+        const workerId = `${node.id}-${Date.now()}`
+        const worker = new Worker(workerScript, { type: 'module' })
+        this.workers.set(workerId, worker)
 
-      const workerId = `${node.id}-${Date.now()}`
-      const worker = new Worker(workerScript, { type: 'module' })
-      this.workers.set(workerId, worker)
-
-      worker.onmessage = (event) => {
-        const response = event.data
-        if (response.success) {
-          resolve(response.result)
-        } else {
-          reject(new Error(response.error || 'Worker execution failed'))
+        worker.onmessage = (event) => {
+          const response = event.data
+          if (response.success) {
+            resolve(response.result)
+          } else {
+            reject(new Error(response.error || 'Worker execution failed'))
+          }
+          worker.terminate()
+          this.workers.delete(workerId)
         }
-        worker.terminate()
-        this.workers.delete(workerId)
+
+        worker.onerror = (error) => {
+          reject(new Error(error.message || 'Worker error'))
+          worker.terminate()
+          this.workers.delete(workerId)
+        }
+
+        const message: Record<string, unknown> = {
+          type: 'execute',
+          nodeId: node.id,
+          params: node.params,
+          config: currentLLMConfig
+        }
+
+        worker.postMessage(message)
+      })
+    }
+
+    throw new Error(`Unknown node type: ${node.type as string}`)
+  }
+
+  private interpolateCodeWithDeps(code: string, deps: Record<string, unknown>): string {
+    let result = code
+    for (const [nodeId, depResult] of Object.entries(deps)) {
+      result = result.replace(new RegExp(`\\$${nodeId}`, 'g'), JSON.stringify(depResult))
+    }
+    return result
+  }
+
+  private async executeInSandbox(code: string, timeout: number = 5000): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const sandboxIframe = document.querySelector<HTMLIFrameElement>('#sandbox-iframe')
+      
+      if (!sandboxIframe?.contentWindow) {
+        reject(new Error('Sandbox iframe not available'))
+        return
       }
 
-      worker.onerror = (error) => {
-        reject(new Error(error.message || 'Worker error'))
-        worker.terminate()
-        this.workers.delete(workerId)
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type !== 'SANDBOX_RESULT') return
+        
+        clearTimeout(timeoutId)
+        window.removeEventListener('message', handleMessage)
+        
+        if (event.data.success) {
+          resolve(event.data.result)
+        } else {
+          reject(new Error(event.data.error || 'Sandbox execution failed'))
+        }
       }
 
-      const message: Record<string, unknown> = {
-        type: 'execute',
-        nodeId: node.id,
-        params: node.params
-      }
+      window.addEventListener('message', handleMessage)
 
-      if (node.type === 'llm-call') {
-        message.config = currentLLMConfig
-      }
+      const timeoutId = setTimeout(() => {
+        window.removeEventListener('message', handleMessage)
+        reject(new Error('Execution timeout'))
+      }, timeout)
 
-      worker.postMessage(message)
+      sandboxIframe.contentWindow.postMessage({
+        type: 'SANDBOX_EXECUTE',
+        code,
+        timeout
+      }, '*')
     })
   }
 

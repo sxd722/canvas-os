@@ -64,6 +64,7 @@ export interface SandboxExecuteMessage extends BaseMessage {
   type: 'SANDBOX_EXECUTE';
   code: string;
   timeout: number;
+  deps?: Record<string, unknown>;
 }
 
 export interface SandboxResultMessage extends BaseMessage {
