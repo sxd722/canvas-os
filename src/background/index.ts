@@ -17,6 +17,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.type === 'CONTENT_FETCH') {
+    handleContentFetch(message.url, message.mode, message.timeout)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 async function handleDagFetch(
@@ -54,6 +61,69 @@ async function handleDagFetch(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Fetch failed'
+    };
+  }
+}
+
+async function handleContentFetch(
+  url: string,
+  mode: string,
+  timeout: number
+): Promise<{ success: boolean; content?: string; metadata?: { wordCount: number; charCount: number; extractionTime: number }; error?: string }> {
+  const startTime = Date.now();
+  const fetchTimeout = timeout || 30000;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; CanvasOS/1.0)'
+      }
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    let content: string;
+
+    if (contentType.includes('application/json')) {
+      content = JSON.stringify(await response.json(), null, 2);
+    } else {
+      content = await response.text();
+    }
+
+    const extractionTime = Date.now() - startTime;
+    const wordCount = content.split(/\s+/).filter(w => w.length > 0).length;
+    const charCount = content.length;
+
+    if (mode === 'readability') {
+      content = content.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    return {
+      success: true,
+      content,
+      metadata: {
+        wordCount,
+        charCount,
+        extractionTime
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Content fetch failed'
     };
   }
 }

@@ -71,6 +71,30 @@ export const toolDefinitions: Tool[] = [
     }
   },
   {
+    name: 'read_webpage_content',
+    description: 'Fetch and extract content from a webpage URL. Use this to retrieve product information, summarize articles, or extract specific data points like prices, emails, and dates.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The URL to fetch content from',
+          format: 'uri'
+        },
+        mode: {
+          type: 'string',
+          enum: ['full', 'readability', 'data-points'],
+          description: 'Extraction mode: "full" for all text, "readability" for article extraction, "data-points" for structured data (prices, emails, dates)'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Timeout in milliseconds (default: 30000)'
+        }
+      },
+      required: ['url']
+    }
+  },
+  {
     name: 'execute_dag',
     description: 'Execute a plan of interconnected tasks as a DAG. Web operations bypass CORS. Independent nodes run concurrently. Prefer this for multi-step tasks like fetching URLs, processing data, and summarizing results.',
     parameters: {
@@ -221,6 +245,42 @@ export class ToolRegistry {
       };
     });
 
+    this.registerHandler('read_webpage_content', async (call) => {
+      const url = call.arguments.url as string;
+      const mode = (call.arguments.mode as string) || 'full';
+      const timeout = (call.arguments.timeout as number) || 30000;
+
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          {
+            type: 'CONTENT_FETCH',
+            url,
+            mode,
+            timeout
+          },
+          (response) => {
+            if (response && response.success) {
+              resolve({
+                success: true,
+                content: {
+                  url,
+                  mode,
+                  text: response.content,
+                  metadata: response.metadata,
+                  dataPoints: response.dataPoints
+                }
+              });
+            } else {
+              resolve({
+                success: false,
+                error: response?.error || 'Failed to fetch webpage content'
+              });
+            }
+          }
+        );
+      });
+    });
+
     this.registerHandler('execute_dag', async (call) => {
       const nodes = call.arguments.nodes as DAGNode[];
       const planId = `${Date.now()}-dag`;
@@ -231,9 +291,11 @@ export class ToolRegistry {
 
       return {
         success: true,
-        planId,
-        status: 'running',
-        nodeCount: nodes.length
+        content: {
+          planId,
+          status: 'running',
+          nodeCount: nodes.length
+        }
       };
     });
   }
