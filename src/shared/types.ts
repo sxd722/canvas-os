@@ -89,3 +89,19 @@ export interface ToolResponse {
   error?: string;
   code?: string;
 }
+
+export type ExtractionMode = 'full' | 'readability' | 'data-points';
+
+export interface ContentExtractionResult {
+  success: boolean;
+  content?: string;
+  url: string;
+  title?: string;
+  metadata?: {
+    wordCount: number;
+    charCount: number;
+    extractionTime: number;
+  };
+  error?: string;
+  timestamp: number;
+}
