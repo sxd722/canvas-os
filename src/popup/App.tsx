@@ -10,6 +10,7 @@ import { useDagEngine } from './hooks/useDagEngine';
 import { HoverStateProvider } from './context/HoverStateContext';
 import { toolRegistry } from './services/toolRegistry';
 import { useArtifacts } from './hooks/useArtifacts';
+import { useWebviewSessions } from './hooks/useWebviewSessions';
 import { ToolTester } from './services/toolTester';
 import type { ChatMessage, CanvasNode, LLMConfig } from '../shared/types';
 import type { DAGPlan } from '../shared/dagSchema';
@@ -37,6 +38,7 @@ export default function App() {
   const { executeInSandbox } = useSandboxExecutor(sandboxRef);
   const { subscribe } = useDagEngine();
   const { getMetadata, getContent } = useArtifacts(canvasNodes);
+  const webviewSessions = useWebviewSessions();
   const toolTesterRef = useRef<ToolTester | null>(null);
 
   useEffect(() => {
@@ -59,7 +61,8 @@ export default function App() {
   useEffect(() => {
     toolRegistry.setArtifactContentGetter(getContent);
     toolRegistry.setArtifactMetadataGetter(getMetadata);
-  }, [getContent, getMetadata]);
+    toolRegistry.setWebviewSessionAccessor(webviewSessions);
+  }, [getContent, getMetadata, webviewSessions]);
 
   useEffect(() => {
     saveChatMessages(messages);
@@ -204,6 +207,63 @@ export default function App() {
           timestamp: Date.now()
         };
         setMessages(prev => [...prev, message]);
+      } else if (toolCall.name === 'browse_webview') {
+        const url = toolCall.arguments.url as string;
+        const title = (toolCall.arguments.title as string) || new URL(url).hostname;
+
+        const webViewNode: CanvasNode = {
+          id: generateId(),
+          type: 'web-view',
+          content: {
+            url,
+            title,
+            status: 'loading'
+          },
+          position: { x: 100 + canvasNodes.length * 20, y: 100 + canvasNodes.length * 20 },
+          size: { width: 400, height: 300 },
+          title: title,
+          createdAt: Date.now(),
+          source: { type: 'web', ref: url }
+        };
+
+        setCanvasNodes(prev => [...prev, webViewNode]);
+
+        const browseMsg: ChatMessage = {
+          id: generateId(),
+          role: 'assistant',
+          content: `Browsing webview: ${url}`,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, browseMsg]);
+      } else if (toolCall.name === 'interact_webview') {
+        const sessionId = toolCall.arguments.sessionId as string;
+        const action = toolCall.arguments.action as string;
+        const interactMsg: ChatMessage = {
+          id: generateId(),
+          role: 'assistant',
+          content: `Interacting with webview (${sessionId}): ${action}`,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, interactMsg]);
+      } else if (toolCall.name === 'navigate_webview_back') {
+        const sessionId = toolCall.arguments.sessionId as string;
+        const navBackMsg: ChatMessage = {
+          id: generateId(),
+          role: 'assistant',
+          content: `Navigating back in webview: ${sessionId}`,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, navBackMsg]);
+      } else if (toolCall.name === 'extract_webview_content') {
+        const sessionId = toolCall.arguments.sessionId as string;
+        const selector = toolCall.arguments.selector as string;
+        const extractMsg: ChatMessage = {
+          id: generateId(),
+          role: 'assistant',
+          content: `Extracting content from webview (${sessionId})${selector ? ` using selector: ${selector}` : ''}`,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, extractMsg]);
       }
     } catch (error) {
       const errorMessage: ChatMessage = {
@@ -296,7 +356,8 @@ export default function App() {
         return;
       }
 
-      const contextMessage = buildContextWithMetadata(content);
+      const contextMessage = buildContextWithMetadata(content)
+        + '\n[Webview Tools] Use browse_webview (open URL + extract elements), interact_webview (click/fill), navigate_webview_back (go back), extract_webview_content (CSS selector extraction). browse_webview returns scored elements - pick highest relevance first.';
       const response = await llmService.sendMessage(contextMessage, config, toolRegistry.getToolDefinitions());
       
       const assistantMessage: ChatMessage = {
