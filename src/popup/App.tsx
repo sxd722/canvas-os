@@ -13,6 +13,7 @@ import { useArtifacts } from './hooks/useArtifacts';
 import { useWebviewSessions } from './hooks/useWebviewSessions';
 import { ToolTester } from './services/toolTester';
 import type { ChatMessage, CanvasNode, LLMConfig } from '../shared/types';
+import type { ConversationMessage } from './services/llmService';
 import type { DAGPlan } from '../shared/dagSchema';
 import { generateId } from '../shared/types';
 import { getLLMConfig, saveLLMConfig, getCanvasNodes, saveCanvasNodes, getChatMessages, saveChatMessages } from '../shared/storage';
@@ -146,7 +147,7 @@ export default function App() {
 
   const handleToolCall = useCallback(async (toolCall: { name: string; arguments: Record<string, unknown> }) => {
     try {
-      await toolRegistry.executeTool(toolCall);
+      const result = await toolRegistry.executeTool(toolCall);
       
       if (toolCall.name === 'execute_dag') {
         const nodes = toolCall.arguments.nodes as unknown[];
@@ -265,6 +266,7 @@ export default function App() {
         };
         setMessages(prev => [...prev, extractMsg]);
       }
+      return result;
     } catch (error) {
       const errorMessage: ChatMessage = {
         id: generateId(),
@@ -360,20 +362,71 @@ export default function App() {
         + '\n[Webview Tools] Use browse_webview (open URL + extract elements), interact_webview (click/fill), navigate_webview_back (go back), extract_webview_content (CSS selector extraction). browse_webview returns scored elements - pick highest relevance first.';
       const response = await llmService.sendMessage(contextMessage, config, toolRegistry.getToolDefinitions());
       
+      let currentContent = response.content;
+      let currentToolCalls = response.toolCalls;
+
+      // Agentic loop: keep sending tool results back to LLM until it stops requesting tools
+      const MAX_TOOL_ROUNDS = 10;
+      let rounds = 0;
+
+      while (currentToolCalls && currentToolCalls.length > 0 && rounds < MAX_TOOL_ROUNDS) {
+        rounds++;
+
+        // Build conversation history with tool results for the next LLM call
+        const history: ConversationMessage[] = [
+          { role: 'user', content: contextMessage }
+        ];
+
+        if (currentContent) {
+          history.push({ role: 'assistant', content: currentContent });
+        }
+
+        // Execute all tool calls and collect results
+        for (const toolCall of currentToolCalls) {
+          const toolName = toolCall.name;
+          // Execute tool (handleToolCall does executeTool + UI updates) and capture result
+          const toolResult = await handleToolCall(toolCall);
+          const resultContent = typeof toolResult === 'string'
+            ? toolResult
+            : JSON.stringify(toolResult, null, 2);
+          // Truncate large results to avoid context overflow
+          const truncated = resultContent.length > 4000
+            ? resultContent.substring(0, 4000) + '\n...(truncated)'
+            : resultContent;
+          history.push({ role: 'assistant', content: '', name: toolName });
+          history.push({ role: 'tool', content: truncated, name: toolName });
+        }
+
+        // Re-call LLM with updated history
+        const nextResponse = await llmService.sendMessage(history, config, toolRegistry.getToolDefinitions());
+        currentContent = nextResponse.content;
+        currentToolCalls = nextResponse.toolCalls;
+
+        if (currentContent) {
+          const followUpMessage: ChatMessage = {
+            id: generateId(),
+            role: 'assistant',
+            content: currentContent,
+            timestamp: Date.now(),
+            metadata: { model: config.model }
+          };
+          setMessages(prev => [...prev, followUpMessage]);
+        }
+      }
+      
+      if (!currentContent && rounds > 0) {
+        // LLM produced no final content after tool rounds — add a summary message
+        currentContent = `Completed ${rounds} round(s) of tool execution.`;
+      }
+
       const assistantMessage: ChatMessage = {
         id: generateId(),
         role: 'assistant',
-        content: response.content,
+        content: currentContent,
         timestamp: Date.now(),
         metadata: { model: config.model }
       };
       setMessages(prev => [...prev, assistantMessage]);
-
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        for (const toolCall of response.toolCalls) {
-          await handleToolCall(toolCall);
-        }
-      }
 
       if (response.code) {
         const result = await executeInSandbox(response.code, 10000);
