@@ -1,9 +1,25 @@
 import type { LLMConfig, Tool } from '../../shared/types';
 
+export interface ConversationMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+}
+
 interface LLMResponse {
   content: string;
   code?: string;
   toolCalls?: Array<{
+    id?: string;
     name: string;
     arguments: Record<string, unknown>;
   }>;
@@ -23,8 +39,12 @@ const ENDPOINTS: Record<string, string> = {
 const CODE_PATTERN = /```(?:javascript|js)?\s*([\s\S]*?)```/g;
 
 export const llmService = {
+  /**
+   * Send a conversation to the LLM.
+   * Accepts either a single string (backward compatible) or an array of ConversationMessage.
+   */
   async sendMessage(
-    message: string,
+    messageOrHistory: string | ConversationMessage[],
     config: LLMConfig,
     tools?: Tool[],
     debug?: DebugFunctions
@@ -34,6 +54,11 @@ export const llmService = {
     if (!endpoint) {
       throw new Error('No endpoint configured for provider');
     }
+
+    // Normalize input: string → single user message, array → conversation history
+    const messages: ConversationMessage[] = typeof messageOrHistory === 'string'
+      ? [{ role: 'user', content: messageOrHistory }]
+      : messageOrHistory;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -45,12 +70,19 @@ export const llmService = {
       headers['x-api-key'] = config.apiKey
       headers['anthropic-version'] = '2023-06-01'
       headers['anthropic-dangerous-direct-browser-access'] = 'true'
-      
+
+      // Anthropic: filter out tool-role messages, extract system message
+      const systemMsg = messages.find(m => m.role === 'system')?.content;
+      const filteredMessages = messages
+        .filter(m => m.role !== 'system' && m.role !== 'tool')
+        .map(m => ({ role: m.role, content: m.content }));
+
       body = {
         model: config.model,
-        max_tokens: config.maxTokens || 2048,
+        max_tokens: config.maxTokens || 4096,
         temperature: config.temperature || 0.7,
-        messages: [{ role: 'user', content: message }],
+        ...(systemMsg && { system: systemMsg }),
+        messages: filteredMessages,
         ...(tools && tools.length > 0 && {
           tools: tools.map(tool => ({
             name: tool.name,
@@ -64,9 +96,15 @@ export const llmService = {
       
       body = {
         model: config.model,
-        max_tokens: config.maxTokens || 2048,
+        max_tokens: config.maxTokens || 4096,
         temperature: config.temperature || 0.7,
-        messages: [{ role: 'user', content: message }],
+        messages: messages.map(m => {
+          // Include tool_calls on assistant messages for OpenAI-compatible APIs
+          if (m.role === 'assistant' && m.tool_calls) {
+            return { role: m.role, content: m.content, tool_calls: m.tool_calls };
+          }
+          return { role: m.role, content: m.content, ...(m.name && { name: m.name }), ...(m.tool_call_id && { tool_call_id: m.tool_call_id }) };
+        }),
         ...(tools && tools.length > 0 && {
           tools: tools.map(tool => ({
             type: 'function',
@@ -87,7 +125,7 @@ export const llmService = {
         endpoint,
         provider: config.provider,
         model: config.model,
-        message,
+        messageCount: messages.length,
         tools: tools?.map(t => ({
           name: t.name,
           description: t.description,
@@ -108,7 +146,7 @@ export const llmService = {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
-        const errorMessage = errorData.error?.message || `API error: ${res.status}`
+        const errorMessage = (errorData as Record<string, { message?: string }>).error?.message || `API error: ${res.status}`
         if (logId) debug?.updateLog(logId, {
           status: 'error',
           error: errorMessage,
@@ -120,24 +158,26 @@ export const llmService = {
       const data = await res.json()
       
       let content = ''
-      let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> | undefined
+      let toolCalls: Array<{ id?: string; name: string; arguments: Record<string, unknown> }> | undefined
 
       if (config.provider === 'anthropic') {
-        const textBlock = data.content?.find((b: { type: string }) => b.type === 'text') as { type: string; text: string } | undefined
+        const textBlock = (data.content as Array<{ type: string; text?: string }>)?.find((b) => b.type === 'text')
         content = textBlock?.text || ''
         if (data.stop_reason === 'tool_use') {
-          toolCalls = data.content
-            ?.filter((b: { type: string }) => b.type === 'tool_use')
-            .map((tc: { name: string; input: Record<string, unknown> }) => ({
-              name: tc.name,
-              arguments: tc.input
+          toolCalls = (data.content as Array<{ type: string; name?: string; input?: Record<string, unknown>; id?: string }>)
+            ?.filter((b) => b.type === 'tool_use')
+            .map((tc) => ({
+              id: tc.id,
+              name: tc.name || '',
+              arguments: tc.input || {}
             }))
         }
       } else {
-        const message = data.choices?.[0]?.message
-        content = message?.content || ''
-        if (message && message.tool_calls) {
-          toolCalls = message.tool_calls.map((tc: { function: { name: string; arguments: string } }) => ({
+        const responseMessage = (data.choices?.[0]?.message) as { content?: string; tool_calls?: Array<{ id?: string; function: { name: string; arguments: string } }> } | undefined
+        content = responseMessage?.content || ''
+        if (responseMessage?.tool_calls) {
+          toolCalls = responseMessage.tool_calls.map((tc) => ({
+            id: tc.id,
             name: tc.function.name,
             arguments: JSON.parse(tc.function.arguments)
           }))
