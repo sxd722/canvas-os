@@ -9,7 +9,7 @@
     "lint": "eslint src --report-unused-disable-directives --ignore-pattern src/**/*.test.*",
     "test": "vitest run",
     "test:unit": "vitest run --dir tests/unit",
-    "test:integration": "vitest run --dir tests/integration"
+    "test:integration": "node tests/integration/tool-integration.test.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",
