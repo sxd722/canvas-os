@@ -24,6 +24,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.type === 'SCRAPE_TAB') {
+    handleScrapeTab(message.url, message.selector, message.waitMs, message.timeout)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 async function handleDagFetch(
@@ -124,6 +131,76 @@ async function handleContentFetch(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Content fetch failed'
+    };
+  }
+}
+
+const SCRAPE_CONTENT_CAP = 50000;
+
+async function handleScrapeTab(
+  url: string,
+  selector?: string,
+  waitMs?: number,
+  timeout?: number
+): Promise<{ success: boolean; content?: string; title?: string; extractedAt?: number; durationMs?: number; error?: string }> {
+  const startTime = Date.now();
+  const waitTime = waitMs || 3000;
+  const scrapeTimeout = timeout || 30000;
+  let tab: chrome.tabs.Tab | undefined;
+
+  try {
+    tab = await chrome.tabs.create({ url, active: false });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Scrape timeout after ${scrapeTimeout}ms`)), scrapeTimeout);
+    });
+
+    const scrapePromise = async () => {
+      if (!tab?.id) throw new Error('Tab not available');
+
+      // Wait for page load + JS rendering
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (cssSelector: string | undefined) => {
+          if (cssSelector) {
+            const el = document.querySelector(cssSelector);
+            return el ? (el as HTMLElement).innerText : document.body.innerText;
+          }
+          return document.body.innerText;
+        },
+        args: [selector]
+      });
+
+      const title = document.title;
+      return { content: (result?.result as string) || '', title };
+    };
+
+    const { content, title } = await Promise.race([scrapePromise(), timeoutPromise]);
+
+    if (tab?.id) {
+      await chrome.tabs.remove(tab.id);
+    }
+
+    const cappedContent = content.length > SCRAPE_CONTENT_CAP
+      ? content.slice(0, SCRAPE_CONTENT_CAP) + '\n\n[Content truncated at 50,000 characters]'
+      : content;
+
+    return {
+      success: true,
+      content: cappedContent,
+      title: title || undefined,
+      extractedAt: Date.now(),
+      durationMs: Date.now() - startTime,
+    };
+  } catch (error) {
+    if (tab?.id) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* already closed */ }
+    }
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Scrape failed',
     };
   }
 }

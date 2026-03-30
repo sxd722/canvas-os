@@ -1,6 +1,29 @@
 import React from 'react';
 import type { DAGNode } from '../../shared/dagSchema';
 
+function getNodeDisplayTitle(node: DAGNode): string {
+  const params = node.params as Record<string, unknown> | undefined;
+  if (!params) return node.id;
+  switch (node.type) {
+    case 'webview-browse': {
+      const url = (params.url as string) || '';
+      try { return new URL(url).hostname; } catch { return url || node.id; }
+    }
+    case 'webview-interact': {
+      const action = (params.action as string) || 'interact';
+      const selector = (params.elementSelector as string) || '';
+      return selector ? `${action}: ${selector}` : node.id;
+    }
+    case 'webview-extract': {
+      const selector = (params.extractSelector as string) || '';
+      const target = (params.extractTarget as string) || '';
+      return (selector || target) ? `extract: ${selector || target}` : node.id;
+    }
+    default:
+      return node.id;
+  }
+}
+
 interface DAGNodeProps {
   node: DAGNode;
   position: { x: number; y: number };
@@ -24,10 +47,26 @@ export function DAGNodeComponent({ node, position, onDrag }: DAGNodeProps) {
     skipped: '⊘'
   };
 
-  const typeLabels = {
+  const typeLabels: Record<string, string> = {
     'llm-call': 'LLM Call',
     'js-execution': 'JS Execution',
-    'web-operation': 'Web Op'
+    'web-operation': 'Web Op',
+    'scrape': 'Scrape',
+    'llm_calc': 'LLM Calc',
+    'webview-browse': 'Webview Browse',
+    'webview-interact': 'Webview Interact',
+    'webview-extract': 'Webview Extract'
+  };
+
+  const typeIcons: Record<string, string> = {
+    'llm-call': '🤖',
+    'js-execution': '⚡',
+    'web-operation': '🌐',
+    'scrape': '📡',
+    'llm_calc': '🧮',
+    'webview-browse': '🌍',
+    'webview-interact': '👆',
+    'webview-extract': '📄'
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -51,8 +90,9 @@ export function DAGNodeComponent({ node, position, onDrag }: DAGNodeProps) {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="text-lg">{statusIcons[node.status]}</span>
+            <span className="text-sm">{typeIcons[node.type] || ''}</span>
             <h3 className="text-sm font-medium text-gray-200 truncate">
-              {node.id}
+              {getNodeDisplayTitle(node)}
             </h3>
           </div>
           <span className="text-xs text-gray-400 bg-gray-700 px-2 py-1 rounded">

@@ -1,6 +1,6 @@
 ﻿# canvas-coworker Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-26
+Auto-generated from all feature plans. Last updated: 2026-03-30
 
 ## Active Technologies
 - TypeScript 5.x / JavaScript ES2022 + React 18+
@@ -10,6 +10,9 @@ Auto-generated from all feature plans. Last updated: 2026-03-26
 - chrome.storage.local (persistent), chrome.storage.session (ephemeral chat)
 - [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION] (003-fix-dag-architecture)
 - [if applicable, e.g., PostgreSQL, CoreData, files or N/A] (003-fix-dag-architecture)
+- TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3 (006-macbook-price-arbitrage)
+- chrome.storage.local (LLM config), chrome.storage.session (ephemeral DAG state) (006-macbook-price-arbitrage)
+- In-memory (React state) for webview sessions; chrome.storage for extension config (007-webview-browsing-agent)
 
 ## Project Structure
 
@@ -87,9 +90,9 @@ window.__canvasNodes // Current canvas state
 | Artifacts | `src/popup/hooks/useArtifacts.ts` |
 
 ## Recent Changes
-- 003-fix-dag-architecture: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
-- 002-agentic-ide-features: Completed Phases 5, 6, and 7 (Polish)
-- Added ToolTester for CDP-based tool testing
+- 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
+- 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
+- 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
