@@ -1,6 +1,7 @@
 import type { ChatMessage, CanvasNode } from '../../shared/types';
 import { generateId } from '../../shared/types';
 import type { DAGNodeParams } from '../../shared/dagSchema';
+import { toolRegistry } from './toolRegistry';
 
 type SetCanvasNodes = React.Dispatch<React.SetStateAction<CanvasNode[]>>;
 type SetMessages = React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -37,17 +38,11 @@ export class ToolTester {
   }
 
  getAvailableTools() {
-    return [
-      {
-        name: 'read_webpage_content',
-        description: 'Fetch and extract content from a webpage URL. Use this to retrieve product information, summarize articles, or extract specific data points like prices, emails, and dates.',
-        parameters: {
-          url: { type: 'string', required: true, description: 'The URL to fetch content from' },
-          mode: { type: 'string', enum: ['full', 'readability', 'data-points'], required: false, description: 'Extraction mode: "full" for all text, "readability" for article extraction, "data-points" for structured data (prices, emails, dates)' },
-          timeout: { type: 'number', required: false, description: 'Timeout in milliseconds (default: 30000)' }
-        }
-      }
-    ];
+    return toolRegistry.getToolDefinitions().map(t => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters
+    }));
   }
 
   async invokeTool(toolName: string, args: Record<string, unknown>): Promise<ToolTestResult> {
