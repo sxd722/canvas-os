@@ -35,7 +35,15 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "content_scripts": [],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["webview_bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    }
+  ],
   "sandbox": {
     "pages": ["sandbox.html"]
   },
