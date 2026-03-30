@@ -1,5 +1,77 @@
 export type CanvasNodeType = 'text' | 'file' | 'summary' | 'code-result' | 'markdown' | 'web-view' | 'dag-node';
 
+export type WebviewStatus = 'loading' | 'loaded' | 'interacting' | 'blocked' | 'error' | 'closed';
+export type ElementType = 'link' | 'button' | 'input' | 'select' | 'textarea' | 'clickable-div' | 'other';
+
+export interface WebviewSession {
+  id: string;
+  currentUrl: string;
+  originalUrl: string;
+  title: string;
+  status: WebviewStatus;
+  navigationHistory: NavigationEntry[];
+  intent: string;
+  interactionCount: number;
+  maxInteractions: number;
+  channelNonce: string;
+  createdAt: number;
+  lastActiveAt: number;
+}
+
+export interface InteractiveElement {
+  id: string;
+  selector: string;
+  xpath: string;
+  type: ElementType;
+  text: string;
+  description: string;
+  href?: string;
+  inputType?: string;
+  placeholder?: string;
+  relevanceScore: number;
+  boundingRect?: { x: number; y: number; width: number; height: number };
+}
+
+export interface PageExtraction {
+  url: string;
+  title: string;
+  summary: string;
+  elements: InteractiveElement[];
+  extractionMethod: 'tfidf' | 'embedding' | 'heuristic' | 'css-selector';
+  extractedAt: number;
+  totalElementsFound: number;
+  success: boolean;
+  error?: string;
+}
+
+export interface BrowsingIntent {
+  userMessage: string;
+  keywords: string[];
+  description: string;
+  sessionId: string;
+}
+
+export interface NavigationEntry {
+  url: string;
+  title: string;
+  timestamp: number;
+  navigationType: string;
+}
+
+export type PopupToIframeMessage =
+  | { type: 'EXTRACT_CONTENT'; nonce: string; intent: string }
+  | { type: 'INTERACT_ELEMENT'; nonce: string; selector: string; action: 'click' | 'fill' | 'select'; value?: string }
+  | { type: 'NAVIGATE_BACK'; nonce: string }
+  | { type: 'GET_PAGE_STATUS'; nonce: string }
+  | { type: 'EXTRACT_BY_SELECTOR'; nonce: string; selector: string };
+
+export type IframeToPopupMessage =
+  | { type: 'CONTENT_RESPONSE'; nonce: string; extraction: PageExtraction }
+  | { type: 'INTERACTION_RESULT'; nonce: string; success: boolean; newUrl?: string; error?: string }
+  | { type: 'NAVIGATION_COMPLETE'; nonce: string; url: string; title: string }
+  | { type: 'PAGE_STATUS'; nonce: string; status: WebviewStatus; url: string }
+  | { type: 'EXTRACT_RESULT'; nonce: string; data: string; success: boolean; error?: string };
+
 export type ResearchStatus = 'pending' | 'loading' | 'extracting' | 'summarizing' | 'complete' | 'error';
 
 export type ExecutionStatus = 'pending' | 'running' | 'complete' | 'error' | 'timeout';
@@ -105,3 +177,5 @@ export interface ContentExtractionResult {
   error?: string;
   timestamp: number;
 }
+
+
