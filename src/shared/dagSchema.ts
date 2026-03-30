@@ -1,6 +1,6 @@
 export type DAGNodeStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped';
 
-export type DAGNodeType = 'llm-call' | 'js-execution' | 'web-operation';
+export type DAGNodeType = 'llm-call' | 'js-execution' | 'web-operation' | 'scrape' | 'llm_calc' | 'webview-browse' | 'webview-interact' | 'webview-extract';
 
 export interface LLMCallParams {
   type: 'llm-call';
@@ -20,7 +20,34 @@ export interface WebOperationParams {
   action: 'fetch' | 'screenshot';
 }
 
-export type DAGNodeParams = LLMCallParams | JSExecutionParams | WebOperationParams;
+export interface ScrapeParams {
+  type: 'scrape';
+  url: string;
+  selector?: string;
+  waitMs?: number;
+  timeout?: number;
+}
+
+export interface LLMCalcParams {
+  type: 'llm_calc';
+  prompt: string;
+  model?: string;
+}
+
+export interface BrowseDAGNodeParams {
+  type?: 'webview-browse' | 'webview-interact' | 'webview-extract';
+  url?: string;
+  title?: string;
+  sessionId?: string;
+  elementSelector?: string;
+  action?: 'click' | 'fill' | 'select';
+  value?: string;
+  extractSelector?: string;
+  extractTarget?: string;
+  intent?: string;
+}
+
+export type DAGNodeParams = LLMCallParams | JSExecutionParams | WebOperationParams | ScrapeParams | LLMCalcParams | BrowseDAGNodeParams;
 
 export interface DAGNode {
   id: string;
@@ -84,14 +111,8 @@ export const DAG_JSON_SCHEMA = {
       id: { type: 'string' },
       type: {
         type: 'string',
-        enum: ['llm-call', 'js-execution', 'web-operation']
-      },
-      params: { type: 'object' },
-      dependencies: {
-        type: 'array',
-        items: { type: 'string' }
+        enum: ['llm-call', 'js-execution', 'web-operation', 'scrape', 'llm_calc', 'webview-browse', 'webview-interact', 'webview-extract']
       }
-    },
-    additionalProperties: false
+    }
   }
 };
