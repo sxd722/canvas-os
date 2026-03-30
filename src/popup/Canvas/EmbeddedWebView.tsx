@@ -1,15 +1,31 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import type { PopupToIframeMessage, PageExtraction } from '../../shared/types';
 
-interface EmbeddedWebViewProps {
+export type WebViewStatus = 'loading' | 'loaded' | 'blocked' | 'error' | 'interacting';
+
+export interface EmbeddedWebViewHandle {
+  sendMessageToIframe: (message: PopupToIframeMessage) => void;
+}
+
+export interface EmbeddedWebViewProps {
   url: string;
   title?: string;
   nodeId: string;
+  channelNonce?: string;
   onStatusChange?: (status: WebViewStatus) => void;
+  onExtraction?: (extraction: PageExtraction) => void;
+  onInteractionResult?: (result: { success: boolean; newUrl?: string; navigated: boolean }) => void;
 }
 
-export type WebViewStatus = 'loading' | 'loaded' | 'blocked' | 'error';
-
-export default function EmbeddedWebView({ url, title, nodeId, onStatusChange }: EmbeddedWebViewProps) {
+const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(function EmbeddedWebView({
+  url,
+  title,
+  nodeId,
+  channelNonce,
+  onStatusChange,
+  onExtraction,
+  onInteractionResult
+}: EmbeddedWebViewProps, ref) {
   const [status, setStatus] = useState<WebViewStatus>('loading');
   const [retryCount, setRetryCount] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -19,6 +35,71 @@ export default function EmbeddedWebView({ url, title, nodeId, onStatusChange }: 
     setStatus(newStatus);
     onStatusChange?.(newStatus);
   }, [onStatusChange]);
+
+  // Send message to iframe content script via postMessage
+  const sendMessageToIframe = useCallback((message: PopupToIframeMessage) => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+
+    iframe.contentWindow.postMessage({
+      ...message,
+      nonce: channelNonce
+    }, '*');
+  }, [channelNonce]);
+
+  // Expose sendMessageToIframe via ref handle
+  useImperativeHandle(ref, () => ({ sendMessageToIframe }), [sendMessageToIframe]);
+
+  // Listen for messages from iframe content script
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data;
+
+      // Validate nonce to prevent cross-origin interference
+      if (channelNonce && data?.nonce !== channelNonce) return;
+
+      if (data?.type === 'X_FRAME_OPTIONS_BLOCKED' && data?.url === url) {
+        updateStatus('blocked');
+        return;
+      }
+
+      // Handle webview bridge responses
+      if (data?.source === 'webview-bridge') {
+        switch (data.type) {
+          case 'EXTRACTION_RESULT': {
+            if (data.payload && onExtraction) {
+              onExtraction(data.payload as PageExtraction);
+            }
+            updateStatus('loaded');
+            break;
+          }
+          case 'INTERACTION_RESULT': {
+            if (data.payload && onInteractionResult) {
+              onInteractionResult(data.payload as { success: boolean; newUrl?: string; navigated: boolean });
+            }
+            updateStatus('loaded');
+            break;
+          }
+          case 'PAGE_STATUS': {
+            if (data.payload?.status === 'ready') {
+              updateStatus('loaded');
+            } else if (data.payload?.status === 'loading') {
+              updateStatus('loading');
+            }
+            break;
+          }
+          case 'ERROR': {
+            console.error('Webview bridge error:', data.payload?.message);
+            updateStatus('error');
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [url, channelNonce, updateStatus, onExtraction, onInteractionResult]);
 
   const handleLoad = useCallback(() => {
     if (loadTimeoutRef.current) {
@@ -58,17 +139,6 @@ export default function EmbeddedWebView({ url, title, nodeId, onStatusChange }: 
     };
   }, [url, retryCount, status, updateStatus]);
 
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'X_FRAME_OPTIONS_BLOCKED' && event.data?.url === url) {
-        updateStatus('blocked');
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [url, updateStatus]);
-
   return (
     <div className="h-full flex flex-col" data-node-id={nodeId}>
       <div className="flex items-center justify-between mb-2 shrink-0">
@@ -78,6 +148,7 @@ export default function EmbeddedWebView({ url, title, nodeId, onStatusChange }: 
         <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${
           status === 'loading' ? 'bg-yellow-900 text-yellow-300' :
           status === 'loaded' ? 'bg-green-900 text-green-300' :
+          status === 'interacting' ? 'bg-blue-900 text-blue-300' :
           status === 'blocked' ? 'bg-orange-900 text-orange-300' :
           'bg-red-900 text-red-300'
         }`}>
@@ -165,4 +236,6 @@ export default function EmbeddedWebView({ url, title, nodeId, onStatusChange }: 
       </div>
     </div>
   );
-}
+});
+
+export default EmbeddedWebView;
