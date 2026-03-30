@@ -141,10 +141,12 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
                     error: '✗',
                     skipped: '⊘'
                 };
-                const typeLabels: Record<DAGNodeType, string> = {
+                const typeLabels: Record<string, string> = {
                     'llm-call': 'LLM Call',
                     'js-execution': 'JS Execution',
-                    'web-operation': 'Web Op'
+                    'web-operation': 'Web Op',
+                    'scrape': 'Scrape',
+                    'llm_calc': 'LLM Calc'
                 };
                 return (
                     <div className={`space-y-2 ${statusColors[dagContent.status]}`}>
