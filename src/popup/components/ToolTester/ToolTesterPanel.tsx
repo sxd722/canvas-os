@@ -3,12 +3,34 @@ import { ToolTester, ToolTestResult } from '../../services/toolTester';
 import type { CanvasNode, ChatMessage } from '../../../shared/types';
 
 const TOOL_EXAMPLE_ARGS: Record<string, string> = {
+  list_artifacts: JSON.stringify({}, null, 2),
+  read_artifact_content: JSON.stringify({
+    artifactId: 'artifact-id-here'
+  }, null, 2),
   open_web_view: JSON.stringify({
     url: 'https://example.com',
     title: 'Test Page'
   }, null, 2),
-  read_artifact_content: JSON.stringify({
-    artifactId: 'artifact-id-here'
+  read_webpage_content: JSON.stringify({
+    url: 'https://example.com',
+    mode: 'full'
+  }, null, 2),
+  browse_webview: JSON.stringify({
+    url: 'https://example.com',
+    intent: 'Find the main navigation links'
+  }, null, 2),
+  interact_webview: JSON.stringify({
+    session_id: 'session-id-here',
+    element_selector: 'a.nav-link',
+    action: 'click'
+  }, null, 2),
+  navigate_webview_back: JSON.stringify({
+    session_id: 'session-id-here'
+  }, null, 2),
+  extract_webview_content: JSON.stringify({
+    session_id: 'session-id-here',
+    selector: 'h1',
+    target: 'Page title'
   }, null, 2),
   execute_dag: JSON.stringify({
     nodes: [
@@ -51,6 +73,7 @@ export default function ToolTesterPanel({ canvasNodes, setCanvasNodes, setMessag
 
   const toolTester = useMemo(() => new ToolTester(setCanvasNodes, setMessages), [setCanvasNodes, setMessages]);
   const availableTools = toolTester.getAvailableTools();
+  const selectedToolDef = availableTools.find((t: { name: string }) => t.name === selectedTool);
 
   const runSingleTest = useCallback(async () => {
     setIsRunning(true);
@@ -71,20 +94,6 @@ export default function ToolTesterPanel({ canvasNodes, setCanvasNodes, setMessag
     }
   }, [selectedTool, toolArgs, toolTester]);
 
-  const runAllTests = useCallback(async () => {
-    setIsRunning(true);
-    setTestResults([]);
-    try {
-      const suite = toolTester.getDefaultTestSuite();
-      const results = await toolTester.runTestSuite(suite);
-      setTestResults(results);
-    } catch (error) {
-      console.error('Test suite failed:', error);
-    } finally {
-      setIsRunning(false);
-    }
-  }, [toolTester]);
-
   const passedCount = testResults.filter(r => r.success).length;
   const failedCount = testResults.length - passedCount;
 
@@ -102,72 +111,83 @@ export default function ToolTesterPanel({ canvasNodes, setCanvasNodes, setMessag
         </div>
 
         <div className="flex-1 overflow-auto p-4">
+          <div className="mb-4">
+            <label className="block text-xs text-gray-400 mb-1">Select Tool</label>
+            <select
+              value={selectedTool}
+              onChange={(e) => setSelectedTool(e.target.value)}
+              className="w-full bg-gray-700 text-gray-100 text-sm px-2 py-1 rounded border border-gray-600"
+            >
+              {availableTools.map((tool: { name: string }) => (
+                <option key={tool.name} value={tool.name}>{tool.name}</option>
+              ))}
+            </select>
+            {selectedToolDef && (
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">{selectedToolDef.description}</p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Select Tool</label>
-              <select
-                value={selectedTool}
-                onChange={(e) => setSelectedTool(e.target.value)}
-                className="w-full bg-gray-700 text-gray-100 text-sm px-2 py-1 rounded border border-gray-600"
-              >
-                {availableTools.map((tool: { name: string }) => (
-                  <option key={tool.name} value={tool.name}>{tool.name}</option>
-                ))}
-              </select>
+              <label className="block text-xs text-gray-400 mb-1">Arguments (JSON)</label>
+              <textarea
+                value={toolArgs}
+                onChange={(e) => setToolArgs(e.target.value)}
+                className="w-full bg-gray-700 text-gray-100 text-xs px-2 py-1 rounded border border-gray-600 font-mono"
+                rows={10}
+                spellCheck={false}
+              />
             </div>
 
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Actions</label>
-              <div className="flex gap-2">
+            <div className="flex flex-col">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="block text-xs text-gray-400">Actions</label>
+                <span className="text-xs">
+                  <span className="text-green-400">{passedCount} passed</span>
+                  {failedCount > 0 && <span className="text-red-400 ml-2">, {failedCount} failed</span>}
+                </span>
+              </div>
+              <div className="flex gap-2 mb-2">
                 <button
                   onClick={runSingleTest}
                   disabled={isRunning}
                   className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs rounded"
                 >
-                  Run Test
+                  {isRunning ? 'Running...' : 'Run Tool'}
                 </button>
-                <button
-                  onClick={runAllTests}
-                  disabled={isRunning}
-                  className="flex-1 px-3 py-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs rounded"
-                >
-                  Run All
-                </button>
+              </div>
+              <div className="flex-1 bg-gray-900 rounded p-2 overflow-y-auto min-h-0">
+                {testResults.length === 0 ? (
+                  <p className="text-xs text-gray-600">Click "Run Tool" to execute</p>
+                ) : (
+                  testResults.map((result, index) => (
+                    <div key={index} className="mb-3">
+                      <div className={`flex items-center justify-between text-xs mb-1 ${
+                        result.success ? 'text-green-300' : 'text-red-300'
+                      }`}>
+                        <span>
+                          <span className="mr-1">{result.success ? '✓' : '✗'}</span>
+                          {result.toolName}
+                          <span className="text-gray-500 ml-1">({result.duration}ms)</span>
+                        </span>
+                      </div>
+                      {result.error && (
+                        <div className="text-xs text-red-400 bg-red-950 rounded px-2 py-1 mb-1 font-mono break-all">
+                          {result.error}
+                        </div>
+                      )}
+                      {result.output != null && (
+                        <pre className="text-xs text-gray-300 bg-gray-800 rounded px-2 py-1 font-mono whitespace-pre-wrap overflow-auto max-h-40 break-all">
+                          {typeof result.output === 'string'
+                            ? result.output
+                            : JSON.stringify(result.output as Record<string, unknown>, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-xs text-gray-400 mb-1">Arguments (JSON)</label>
-            <textarea
-              value={toolArgs}
-              onChange={(e) => setToolArgs(e.target.value)}
-              className="w-full bg-gray-700 text-gray-100 text-xs px-2 py-1 rounded border border-gray-600 font-mono"
-              rows={8}
-            />
-          </div>
-
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm text-gray-300">Results</span>
-            <span className="text-xs">
-              <span className="text-green-400">{passedCount} passed</span>
-              {failedCount > 0 && <span className="text-red-400 ml-2">, {failedCount} failed</span>}
-            </span>
-          </div>
-
-          <div className="bg-gray-900 rounded p-2 max-h-32 overflow-y-auto">
-            {testResults.map((result, index) => (
-              <div key={index} className={`flex items-center justify-between py-1 px-2 text-xs ${
-                result.success ? 'text-green-300' : 'text-red-300'
-              }`}>
-                <span>
-                  <span className="mr-2">{result.success ? '✓' : '✗'}</span>
-                  {result.toolName}
-                  {result.error && <span className="text-gray-500 ml-2">- {result.error}</span>}
-                </span>
-                <span className="text-gray-500">{result.duration}ms</span>
-              </div>
-            ))}
           </div>
         </div>
 
