@@ -63,9 +63,22 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
         return;
       }
 
-      // Handle webview bridge responses
-      if (data?.source === 'webview-bridge') {
+      // Handle webview bridge responses (both direct and via source field)
+      const isBridgeMessage = data?.source === 'webview-bridge'
+        || data?.type === 'CONTENT_RESPONSE'
+        || data?.type === 'INTERACTION_RESULT'
+        || data?.type === 'NAVIGATION_COMPLETE'
+        || data?.type === 'EXTRACT_RESULT';
+
+      if (isBridgeMessage) {
         switch (data.type) {
+          case 'CONTENT_RESPONSE': {
+            if (data.extraction && onExtraction) {
+              onExtraction(data.extraction as PageExtraction);
+            }
+            updateStatus('loaded');
+            break;
+          }
           case 'EXTRACTION_RESULT': {
             if (data.payload && onExtraction) {
               onExtraction(data.payload as PageExtraction);
@@ -77,6 +90,10 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
             if (data.payload && onInteractionResult) {
               onInteractionResult(data.payload as { success: boolean; newUrl?: string; navigated: boolean });
             }
+            updateStatus('loaded');
+            break;
+          }
+          case 'NAVIGATION_COMPLETE': {
             updateStatus('loaded');
             break;
           }
