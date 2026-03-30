@@ -602,10 +602,9 @@ export class ToolRegistry {
         return { success: false, error: 'Already at the initial page, cannot go back' };
       }
 
-      // Send navigate back command to iframe
+      // Send NAVIGATE_BACK command to iframe
       window.postMessage({
-        type: 'POPUP_TO_IFRAME',
-        command: 'NAVIGATE_BACK',
+        type: 'NAVIGATE_BACK',
         nonce: session.channelNonce
       }, '*');
 
@@ -1103,8 +1102,7 @@ export class ToolRegistry {
 
       // Send EXTRACT_CONTENT command to iframe
       window.postMessage({
-        type: 'POPUP_TO_IFRAME',
-        command: 'EXTRACT_CONTENT',
+        type: 'EXTRACT_CONTENT',
         nonce,
         intent,
         sessionId
@@ -1148,8 +1146,7 @@ export class ToolRegistry {
 
       // Send INTERACT_ELEMENT command to iframe
       window.postMessage({
-        type: 'POPUP_TO_IFRAME',
-        command: 'INTERACT_ELEMENT',
+        type: 'INTERACT_ELEMENT',
         nonce,
         selector,
         action,
@@ -1219,8 +1216,7 @@ export class ToolRegistry {
 
       // Send EXTRACT_BY_SELECTOR command to iframe
       window.postMessage({
-        type: 'POPUP_TO_IFRAME',
-        command: 'EXTRACT_BY_SELECTOR',
+        type: 'EXTRACT_BY_SELECTOR',
         nonce,
         selector
       }, '*');
