@@ -220,6 +220,7 @@ export class ToolRegistry {
   private webviewSessions: WebviewSessionAccessor | null = null;
   private activeWebviewDAGPlanId: string | null = null;
   private activeWebviewDAGNodes: DAGNode[] = [];
+  public addCanvasNode: ((node: any) => void) | null = null;
 
   constructor() {
     this.registerDefaultHandlers();
@@ -477,7 +478,7 @@ export class ToolRegistry {
 
       // Wait for page to load via postMessage from iframe (up to 10s)
       console.log(`[DAG] browse_webview | waiting for extraction | sessionId=${session.id} | timeout=10000ms`);
-      const extraction = await this.waitForExtraction(session.channelNonce, session.id, intent, 10000);
+      const extraction = await this.waitForExtraction(session.channelNonce, session.id, intent, 10000, url);
       console.log(`[DAG] browse_webview | extraction result | sessionId=${session.id} | success=${extraction.success} | elements=${extraction.elements?.length || 0} | error=${extraction.error || 'none'}`);
 
       this.webviewSessions.updateSession(session.id, {
@@ -579,14 +580,14 @@ export class ToolRegistry {
           navigationType: 'interaction'
         });
 
-        extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 10000);
+        extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 10000, interactionResult.newUrl || session.currentUrl);
         this.webviewSessions.updateSession(sessionId, {
           currentUrl: interactionResult.newUrl || session.currentUrl,
           title: extraction.title || '',
           status: 'loaded'
         });
       } else {
-        extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 5000);
+        extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 5000, session.currentUrl);
         this.webviewSessions.updateSession(sessionId, { status: 'loaded' });
       }
 
@@ -639,7 +640,7 @@ export class ToolRegistry {
       const currentEntry = prevEntry; // The page we just went back to is the previous entry
 
       // Re-extract content from the page we went back to
-      const extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 10000);
+      const extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 10000, navResult.url || session.currentUrl);
 
       this.webviewSessions.updateSession(sessionId, {
         currentUrl: navResult.url || (currentEntry?.url || session.currentUrl),
@@ -858,10 +859,31 @@ export class ToolRegistry {
       return this.executeWebviewDAGNode(node);
     }
 
-    // Scrape node type — execute visually via canvas webview
+    // Scrape node type — spawn canvas webview node then execute browse_webview
     if (node.type === 'scrape') {
       const params = node.params as { url: string; selector?: string; waitMs?: number; timeout?: number };
       console.log(`[DAG] node scrape | nodeId=${node.id} | url=${params.url} | intent=extract page data for comparison | title=Scrape: ${params.url}`);
+
+      // Spawn a visible canvas node for the webview
+      const canvasNodeId = `dag-node-${node.id}`;
+      if (this.addCanvasNode) {
+        this.addCanvasNode({
+          id: canvasNodeId,
+          type: 'web-view',
+          content: { url: params.url, title: 'Scrape: ' + params.url, status: 'loading' },
+          position: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
+          size: { width: 600, height: 400 },
+          createdAt: Date.now(),
+          source: 'dag-scrape'
+        });
+        console.log(`[DAG] node scrape | spawned canvas node | canvasNodeId=${canvasNodeId} | url=${params.url}`);
+      } else {
+        console.warn(`[DAG] node scrape | addCanvasNode not wired, skipping canvas node spawn`);
+      }
+
+      // Give React time to render the iframe before executing browse_webview
+      await new Promise(r => setTimeout(r, 100));
+
       const result = await this.executeTool({
         name: 'browse_webview',
         arguments: {
@@ -885,6 +907,17 @@ export class ToolRegistry {
       if (!currentLLMConfig) {
         console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=LLM configuration is required`);
         throw new Error('LLM configuration is required for llm_calc nodes');
+      }
+      // Check if any dependency failed before proceeding
+      const failedDep = Object.entries(depResults).find(([, val]) => {
+        if (val && typeof val === 'object' && 'error' in val) return true;
+        if (val && typeof val === 'object' && 'success' in val && (val as any).success === false) return true;
+        return false;
+      });
+      if (failedDep) {
+        const errMsg = `Dependency ${failedDep[0]} failed: ${JSON.stringify(failedDep[1])}`;
+        console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=${errMsg}`);
+        throw new Error(errMsg);
       }
       const interpolatedPrompt = this.interpolateCodeWithDeps(params.prompt, depResults);
       console.log(`[DAG] node llm_calc | nodeId=${node.id} | model=${params.model || 'default'} | promptLength=${interpolatedPrompt.length}`);
@@ -1141,15 +1174,20 @@ export class ToolRegistry {
   }
 
   /**
-   * Send EXTRACT_CONTENT to iframe and wait for CONTENT_RESPONSE.
-   * Uses window.postMessage to communicate with the content script running in the iframe.
+   * Send EXTRACT_CONTENT to iframe by URL and wait for CONTENT_RESPONSE.
+   * Finds the iframe by src URL, retries every 100ms for up to 2s if not found,
+   * then sends postMessage directly to the matched iframe.
    */
-  private waitForExtraction(nonce: string, sessionId: string, intent: string, timeoutMs: number): Promise<PageExtraction> {
+  private waitForExtraction(nonce: string, sessionId: string, intent: string, timeoutMs: number, url: string): Promise<PageExtraction> {
     return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
+      let settled = false;
+
+      const failResult = (error: string) => {
+        if (settled) return;
+        settled = true;
         window.removeEventListener('message', handler);
         resolve({
-          url: '',
+          url,
           title: '',
           summary: '',
           elements: [],
@@ -1157,15 +1195,19 @@ export class ToolRegistry {
           extractedAt: Date.now(),
           totalElementsFound: 0,
           success: false,
-          error: 'Extraction timed out'
+          error
         });
-      }, timeoutMs);
+      };
+
+      const timeoutId = setTimeout(() => failResult('Extraction timed out'), timeoutMs);
 
       const handler = async (event: MessageEvent) => {
         const data = event.data;
         if (data?.nonce !== nonce) return;
 
-        if (data?.type === 'CONTENT_RESPONSE' || data?.source === 'webview-bridge' && data?.type === 'EXTRACTION_RESULT') {
+        if (data?.type === 'CONTENT_RESPONSE' || (data?.source === 'webview-bridge' && data?.type === 'EXTRACTION_RESULT')) {
+          if (settled) return;
+          settled = true;
           clearTimeout(timeoutId);
           window.removeEventListener('message', handler);
 
@@ -1198,30 +1240,33 @@ export class ToolRegistry {
               resolve({ ...payload, extractionMethod: payload.extractionMethod || 'tfidf', success: true });
             }
           } else {
-            resolve({
-              url: '',
-              title: '',
-              summary: '',
-              elements: [],
-              extractionMethod: 'tfidf',
-              extractedAt: Date.now(),
-              totalElementsFound: 0,
-              success: false,
-              error: 'No extraction payload received'
-            });
+            failResult('No extraction payload received');
           }
         }
       };
 
       window.addEventListener('message', handler);
 
-      // Send EXTRACT_CONTENT command to the specific iframe by session ID
-      this.postToIframe(sessionId, {
-        type: 'EXTRACT_CONTENT',
-        nonce,
-        intent,
-        sessionId
-      });
+      // Find iframe by URL — retry every 100ms for up to 2 seconds
+      let retries = 0;
+      const maxRetries = 20; // 20 * 100ms = 2s
+      const tryFindAndSend = () => {
+        if (settled) return;
+        const iframe = document.querySelector<HTMLIFrameElement>(`iframe[src="${url}"]`);
+        if (iframe?.contentWindow) {
+          console.log(`[ToolRegistry] waitForExtraction | found iframe by URL | url=${url} | retries=${retries}`);
+          iframe.contentWindow.postMessage({ type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, '*');
+        } else if (retries < maxRetries) {
+          retries++;
+          console.log(`[ToolRegistry] waitForExtraction | iframe not found, retrying | url=${url} | retry=${retries}/${maxRetries}`);
+          setTimeout(tryFindAndSend, 100);
+        } else {
+          // Fallback: try postToIframe by session ID
+          console.warn(`[ToolRegistry] waitForExtraction | iframe not found by URL after ${maxRetries} retries, falling back to postToIframe | url=${url} | sessionId=${sessionId}`);
+          this.postToIframe(sessionId, { type: 'EXTRACT_CONTENT', nonce, intent, sessionId });
+        }
+      };
+      tryFindAndSend();
     });
   }
 
