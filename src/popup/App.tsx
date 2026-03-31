@@ -17,6 +17,7 @@ import type { ConversationMessage } from './services/llmService';
 import type { DAGPlan } from '../shared/dagSchema';
 import { generateId } from '../shared/types';
 import { getLLMConfig, saveLLMConfig, getCanvasNodes, saveCanvasNodes, getChatMessages, saveChatMessages } from '../shared/storage';
+import { DAG_GENERATION_PROMPT_FLEXIBLE } from '../shared/dag-prompts';
 
 const RESEARCH_PATTERN = /^research\s+(https?:\/\/[^\s]+)/i;
 const MENTION_REGEX = /@\[([^\]]*)\]\(([^)]+)\)/g;
@@ -147,7 +148,46 @@ export default function App() {
 
   const handleToolCall = useCallback(async (toolCall: { name: string; arguments: Record<string, unknown> }) => {
     try {
-      const result = await toolRegistry.executeTool(toolCall);
+      let result: Awaited<ReturnType<typeof toolRegistry.executeTool>>;
+
+      if (toolCall.name === 'browse_webview') {
+        // Fix: create canvas node first so iframe exists, then wait for render before executing tool
+        const url = toolCall.arguments.url as string;
+        const title = (toolCall.arguments.title as string) || new URL(url).hostname;
+
+        const webViewNode: CanvasNode = {
+          id: generateId(),
+          type: 'web-view',
+          content: {
+            url,
+            title,
+            status: 'loading'
+          },
+          position: { x: 100 + canvasNodes.length * 20, y: 100 + canvasNodes.length * 20 },
+          size: { width: 400, height: 300 },
+          title: title,
+          createdAt: Date.now(),
+          source: { type: 'web', ref: url }
+        };
+
+        setCanvasNodes(prev => [...prev, webViewNode]);
+
+        const browseMsg: ChatMessage = {
+          id: generateId(),
+          role: 'assistant',
+          content: `Browsing webview: ${url}`,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, browseMsg]);
+
+        // Wait for React to render the iframe into the DOM
+        await new Promise(r => setTimeout(r, 100));
+
+        // Now execute the tool (which sends postMessage to the iframe)
+        result = await toolRegistry.executeTool(toolCall);
+      } else {
+        result = await toolRegistry.executeTool(toolCall);
+      }
       
       if (toolCall.name === 'execute_dag') {
         const nodes = toolCall.arguments.nodes as unknown[];
@@ -208,34 +248,6 @@ export default function App() {
           timestamp: Date.now()
         };
         setMessages(prev => [...prev, message]);
-      } else if (toolCall.name === 'browse_webview') {
-        const url = toolCall.arguments.url as string;
-        const title = (toolCall.arguments.title as string) || new URL(url).hostname;
-
-        const webViewNode: CanvasNode = {
-          id: generateId(),
-          type: 'web-view',
-          content: {
-            url,
-            title,
-            status: 'loading'
-          },
-          position: { x: 100 + canvasNodes.length * 20, y: 100 + canvasNodes.length * 20 },
-          size: { width: 400, height: 300 },
-          title: title,
-          createdAt: Date.now(),
-          source: { type: 'web', ref: url }
-        };
-
-        setCanvasNodes(prev => [...prev, webViewNode]);
-
-        const browseMsg: ChatMessage = {
-          id: generateId(),
-          role: 'assistant',
-          content: `Browsing webview: ${url}`,
-          timestamp: Date.now()
-        };
-        setMessages(prev => [...prev, browseMsg]);
       } else if (toolCall.name === 'interact_webview') {
         const sessionId = toolCall.arguments.sessionId as string;
         const action = toolCall.arguments.action as string;
@@ -359,7 +371,8 @@ export default function App() {
       }
 
       const contextMessage = buildContextWithMetadata(content)
-        + '\n[Webview Tools] Use browse_webview (open URL + extract elements), interact_webview (click/fill), navigate_webview_back (go back), extract_webview_content (CSS selector extraction). browse_webview returns scored elements - pick highest relevance first.';
+        + '\n[Webview Tools] Use browse_webview (open URL + extract elements), interact_webview (click/fill), navigate_webview_back (go back), extract_webview_content (CSS selector extraction). browse_webview returns scored elements - pick highest relevance first.'
+        + '\n\n' + DAG_GENERATION_PROMPT_FLEXIBLE;
       const response = await llmService.sendMessage(contextMessage, config, toolRegistry.getToolDefinitions());
       
       let currentContent = response.content;
