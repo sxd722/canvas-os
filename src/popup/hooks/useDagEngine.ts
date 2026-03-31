@@ -20,18 +20,21 @@ export function useDagEngine(): UseDagEngineReturn {
 
   useEffect(() => {
     const unsubscribe = registerDAGExecutionCallback((planId, nodes, status) => {
+      console.log(`[useDagEngine] callback fired | planId=${planId} | status=${status} | nodeCount=${nodes.length} | nodeStatuses=${nodes.map(n => `${n.id}:${n.status}`).join(', ')}`);
       setLoading(status === 'running');
       setError(null);
       
       setPlans(prev => {
         const existing = prev.find(p => p.id === planId);
         if (existing) {
+          console.log(`[useDagEngine] updating existing plan | planId=${planId} | prevStatus=${existing.status} → ${status}`);
           return prev.map(p => 
             p.id === planId 
               ? { ...p, nodes, status: status === 'running' ? 'running' : status === 'completed' ? 'completed' : 'failed' }
               : p
           );
         }
+        console.log(`[useDagEngine] creating new plan | planId=${planId} | status=${status}`);
         return [...prev, {
           id: planId,
           nodes,

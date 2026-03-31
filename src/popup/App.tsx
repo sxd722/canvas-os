@@ -76,6 +76,7 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = subscribe((plan: DAGPlan) => {
+      console.log(`[App] DAG plan subscription | planId=${plan.id} | status=${plan.status} | nodeCount=${plan.nodes.length} | updating canvas nodes`);
       setCanvasNodes(prev => {
         const updatedNodes = [...prev];
         
@@ -147,6 +148,7 @@ export default function App() {
   }, [getMetadata, getContent]);
 
   const handleToolCall = useCallback(async (toolCall: { name: string; arguments: Record<string, unknown> }) => {
+    console.log(`[App] handleToolCall | name=${toolCall.name} | args=${JSON.stringify(toolCall.arguments).substring(0, 200)}`);
     try {
       let result: Awaited<ReturnType<typeof toolRegistry.executeTool>>;
 
@@ -278,8 +280,10 @@ export default function App() {
         };
         setMessages(prev => [...prev, extractMsg]);
       }
+      console.log(`[App] handleToolCall | name=${toolCall.name} | completed`);
       return result;
     } catch (error) {
+      console.error(`[App] handleToolCall | name=${toolCall.name} | error=${error instanceof Error ? error.message : 'Unknown error'}`);
       const errorMessage: ChatMessage = {
         id: generateId(),
         role: 'assistant',
@@ -291,6 +295,7 @@ export default function App() {
   }, [canvasNodes.length, getContent]);
 
   const handleSendMessage = useCallback(async (content: string) => {
+    console.log(`[App] handleSendMessage | content=${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`);
     const userMessage: ChatMessage = {
       id: generateId(),
       role: 'user',
@@ -374,6 +379,7 @@ export default function App() {
         + '\n[Webview Tools] Use browse_webview (open URL + extract elements), interact_webview (click/fill), navigate_webview_back (go back), extract_webview_content (CSS selector extraction). browse_webview returns scored elements - pick highest relevance first.'
         + '\n\n' + DAG_GENERATION_PROMPT_FLEXIBLE;
       const response = await llmService.sendMessage(contextMessage, config, toolRegistry.getToolDefinitions());
+      console.log(`[App] LLM response | contentLength=${response.content?.length || 0} | toolCalls=${response.toolCalls?.length || 0} | hasCode=${!!response.code}`);
       
       let currentContent = response.content;
       let currentToolCalls = response.toolCalls;
@@ -384,6 +390,7 @@ export default function App() {
 
       while (currentToolCalls && currentToolCalls.length > 0 && rounds < MAX_TOOL_ROUNDS) {
         rounds++;
+        console.log(`[App] agentic loop round ${rounds}/${MAX_TOOL_ROUNDS} | toolCalls=[${currentToolCalls.map(tc => tc.name).join(', ')}]`);
 
         // Build conversation history with tool results for the next LLM call
         const history: ConversationMessage[] = [
@@ -406,11 +413,13 @@ export default function App() {
           const truncated = resultContent.length > 4000
             ? resultContent.substring(0, 4000) + '\n...(truncated)'
             : resultContent;
+          console.log(`[App] tool result | name=${toolName} | resultLength=${resultContent.length} | truncated=${resultContent.length > 4000}`);
           history.push({ role: 'assistant', content: '', name: toolName });
           history.push({ role: 'tool', content: truncated, name: toolName });
         }
 
         // Re-call LLM with updated history
+        console.log(`[App] re-calling LLM | round=${rounds} | historyLength=${history.length}`);
         const nextResponse = await llmService.sendMessage(history, config, toolRegistry.getToolDefinitions());
         currentContent = nextResponse.content;
         currentToolCalls = nextResponse.toolCalls;
@@ -426,6 +435,8 @@ export default function App() {
           setMessages(prev => [...prev, followUpMessage]);
         }
       }
+      
+      console.log(`[App] agentic loop ended | rounds=${rounds} | finalContent=${!!currentContent} | finalToolCalls=${currentToolCalls?.length || 0}`);
       
       if (!currentContent && rounds > 0) {
         // LLM produced no final content after tool rounds — add a summary message

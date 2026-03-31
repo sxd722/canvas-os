@@ -7,6 +7,8 @@ export type DAGExecutionCallback = (planId: string, nodes: DAGNode[], status: 'r
 const dagExecutionCallbacks: Set<DAGExecutionCallback> = new Set();
 
 function notifyDAGExecution(planId: string, nodes: DAGNode[], status: 'running' | 'completed' | 'failed'): void {
+  const nodeStatuses = nodes.map(n => `${n.id}:${n.status}`).join(', ');
+  console.log(`[DAG] notifyDAGExecution | planId=${planId} | status=${status} | nodes=[${nodeStatuses}]`);
   dagExecutionCallbacks.forEach(cb => cb(planId, nodes, status));
 }
 
@@ -354,10 +356,14 @@ export class ToolRegistry {
       const nodes = call.arguments.nodes as DAGNode[];
       const planId = `${Date.now()}-dag`;
 
+      console.log(`[DAG] execute_dag called | planId=${planId} | nodeCount=${nodes.length} | nodes=${nodes.map(n => `${n.id}(${n.type})`).join(', ')}`);
+
       notifyDAGExecution(planId, nodes.map(n => ({ ...n, status: 'pending' })), 'running');
 
       // Await DAG completion so we return actual results
+      console.log(`[DAG] execute_dag | planId=${planId} | starting executeDAGWithWorkers...`);
       await this.executeDAGWithWorkers(planId, nodes);
+      console.log(`[DAG] execute_dag | planId=${planId} | executeDAGWithWorkers completed`);
 
       // Collect results from nodeResults map
       const resultMap = this.nodeResults.get(planId);
@@ -374,6 +380,8 @@ export class ToolRegistry {
 
       const hasErrors = resultsSummary.some(r => !r.success);
       const completedCount = resultsSummary.filter(r => r.success).length;
+
+      console.log(`[DAG] execute_dag finished | planId=${planId} | status=${hasErrors ? 'completed_with_errors' : 'completed'} | completed=${completedCount}/${nodes.length}`);
 
       return {
         success: true,
@@ -394,6 +402,8 @@ export class ToolRegistry {
       const title = (call.arguments.title as string) || (() => { try { return new URL(url).hostname; } catch { return url; } })();
       const intent = call.arguments.intent as string;
 
+      console.log(`[DAG] browse_webview called | url=${url} | intent=${intent} | title=${title}`);
+
       if (!this.webviewSessions) {
         return { success: false, error: 'Webview session manager not configured' };
       }
@@ -405,6 +415,7 @@ export class ToolRegistry {
       }
 
       const session = this.webviewSessions.createSession(url, intent);
+      console.log(`[DAG] browse_webview session created | sessionId=${session.id} | nonce=${session.channelNonce}`);
 
       // T018: Generate webview browsing DAG plan
       this.activeWebviewDAGPlanId = `webview-plan-${Date.now()}`;
@@ -461,9 +472,12 @@ export class ToolRegistry {
         }
       ];
       notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, 'running');
+      console.log(`[DAG] browse_webview DAG plan created | planId=${this.activeWebviewDAGPlanId} | nodes=${this.activeWebviewDAGNodes.map(n => `${n.id}(${n.type})`).join(', ')}`);
 
       // Wait for page to load via postMessage from iframe (up to 10s)
+      console.log(`[DAG] browse_webview | waiting for extraction | sessionId=${session.id} | timeout=10000ms`);
       const extraction = await this.waitForExtraction(session.channelNonce, session.id, intent, 10000);
+      console.log(`[DAG] browse_webview | extraction result | sessionId=${session.id} | success=${extraction.success} | elements=${extraction.elements?.length || 0} | error=${extraction.error || 'none'}`);
 
       this.webviewSessions.updateSession(session.id, {
         status: extraction.success ? 'loaded' : 'error',
@@ -516,6 +530,8 @@ export class ToolRegistry {
       const action = call.arguments.action as 'click' | 'fill' | 'select';
       const value = call.arguments.value as string | undefined;
 
+      console.log(`[DAG] interact_webview called | sessionId=${sessionId} | selector=${elementSelector} | action=${action} | value=${value || '(none)'}`);
+
       if (!this.webviewSessions) {
         return { success: false, error: 'Webview session manager not configured' };
       }
@@ -538,9 +554,11 @@ export class ToolRegistry {
       this.webviewSessions.updateSession(sessionId, { status: 'interacting' });
 
       // Send interaction command to iframe and wait for result
+      console.log(`[DAG] interact_webview | sending INTERACT_ELEMENT | sessionId=${sessionId} | selector=${elementSelector} | action=${action}`);
       const interactionResult = await this.sendInteractionToIframe(
         sessionId, session.channelNonce, elementSelector, action, value
       );
+      console.log(`[DAG] interact_webview | interaction result | sessionId=${sessionId} | success=${interactionResult.success} | navigated=${interactionResult.navigated} | error=${interactionResult.error || 'none'}`);
 
       if (!interactionResult.success) {
         this.webviewSessions.updateSession(sessionId, { status: 'loaded' });
@@ -646,6 +664,8 @@ export class ToolRegistry {
       const selector = call.arguments.selector as string;
       const target = call.arguments.target as string;
 
+      console.log(`[DAG] extract_webview_content called | sessionId=${sessionId} | selector=${selector} | target=${target}`);
+
       if (!this.webviewSessions) {
         return { success: false, error: 'Webview session manager not configured' };
       }
@@ -667,6 +687,7 @@ export class ToolRegistry {
 
       // Send EXTRACT_BY_SELECTOR to iframe via postMessage
       const extractResult = await this.sendExtractBySelector(sessionId, session.channelNonce, selector);
+      console.log(`[DAG] extract_webview_content | result | sessionId=${sessionId} | success=${extractResult.success} | matchCount=${extractResult.matchCount} | error=${extractResult.error || 'none'}`);
 
       // T019: Update extract DAG node status
       this.updateWebviewDAGNode('webview-extract', extractResult.success ? 'success' : 'error', extractResult.error);
@@ -686,11 +707,13 @@ export class ToolRegistry {
   }
 
   private async executeDAGWithWorkers(planId: string, nodes: DAGNode[]): Promise<void> {
+    console.log(`[DAG] executeDAGWithWorkers | planId=${planId} | totalNodes=${nodes.length}`);
     const nodeStatus = new Map<string, 'pending' | 'running' | 'success' | 'error'>();
     const nodeResults = new Map<string, unknown>();
     this.nodeResults.set(planId, nodeResults);
 
     const sortedNodes = this.topologicalSort(nodes);
+    console.log(`[DAG] topologicalSort | planId=${planId} | order=${sortedNodes.map(n => n.id).join(' → ')}`);
 
     for (const node of sortedNodes) {
       nodeStatus.set(node.id, 'pending');
@@ -719,9 +742,15 @@ export class ToolRegistry {
       level.forEach(n => processed.add(n.id))
     }
 
-    for (const level of levels) {
+    console.log(`[DAG] level planning | planId=${planId} | levels=${levels.length} | perLevel=${levels.map(l => `[${l.map(n => `${n.id}(${n.type})`).join(',')}]`).join(' → ')}`);
+
+    for (let levelIdx = 0; levelIdx < levels.length; levelIdx++) {
+      const level = levels[levelIdx];
+      console.log(`[DAG] executing level ${levelIdx + 1}/${levels.length} | planId=${planId} | nodes=[${level.map(n => `${n.id}(${n.type})`).join(', ')}]`);
+
       await Promise.all(
         level.map(async (node) => {
+          console.log(`[DAG] node starting | planId=${planId} | nodeId=${node.id} | type=${node.type} | deps=[${node.dependencies.join(',')}]`);
           nodeStatus.set(node.id, 'running')
 
           try {
@@ -737,15 +766,22 @@ export class ToolRegistry {
             nodeResults.set(node.id, result)
             nodeStatus.set(node.id, 'success')
             this.nodeResults.get(planId)?.set(node.id, result)
+            console.log(`[DAG] node success | planId=${planId} | nodeId=${node.id} | type=${node.type} | resultType=${typeof result}`);
           } catch (error) {
             nodeStatus.set(node.id, 'error')
-            this.nodeResults.get(planId)?.set(node.id, { error: error instanceof Error ? error.message : 'Unknown error' })
+            const errMsg = error instanceof Error ? error.message : 'Unknown error';
+            this.nodeResults.get(planId)?.set(node.id, { error: errMsg })
+            console.error(`[DAG] node failed | planId=${planId} | nodeId=${node.id} | type=${node.type} | error=${errMsg}`);
           }
         })
       )
+
+      console.log(`[DAG] level ${levelIdx + 1}/${levels.length} completed | planId=${planId}`);
     }
 
     const hasErrors = Array.from(nodeStatus.values()).some(s => s === 'error');
+    const finalStatuses = Array.from(nodeStatus.entries()).map(([id, s]) => `${id}:${s}`).join(', ');
+    console.log(`[DAG] all levels completed | planId=${planId} | hasErrors=${hasErrors} | finalStatuses=[${finalStatuses}]`);
     notifyDAGExecution(
       planId,
       nodes.map(n => ({
@@ -763,18 +799,22 @@ export class ToolRegistry {
   }
 
   private async executeNodeWithWorker(node: DAGNode, depResults: Record<string, unknown>): Promise<unknown> {
+    console.log(`[DAG] executeNodeWithWorker | nodeId=${node.id} | type=${node.type} | depKeys=${Object.keys(depResults).join(',')}`);
+
     if (node.type === 'web-operation') {
+      console.log(`[DAG] node web-operation | nodeId=${node.id} | dispatching to executeWebOpViaBackground`);
       return this.executeWebOpViaBackground(node, depResults)
     }
 
     if (node.type === 'js-execution') {
       const params = node.params as { code: string; timeout?: number }
       const codeWithDeps = this.interpolateCodeWithDeps(params.code, depResults)
-      
+      console.log(`[DAG] node js-execution | nodeId=${node.id} | timeout=${params.timeout || 5000}`);
       return this.executeInSandbox(codeWithDeps, params.timeout || 5000)
     }
 
     if (node.type === 'llm-call') {
+      console.log(`[DAG] node llm-call | nodeId=${node.id} | spawning Web Worker`);
       return new Promise((resolve, reject) => {
         const workerScript = new URL('../workers/llmCallWorker.ts', import.meta.url).href
         const workerId = `${node.id}-${Date.now()}`
@@ -783,6 +823,7 @@ export class ToolRegistry {
 
         worker.onmessage = (event) => {
           const response = event.data
+          console.log(`[DAG] llm-call worker response | nodeId=${node.id} | success=${response.success}`);
           if (response.success) {
             resolve(response.result)
           } else {
@@ -793,6 +834,7 @@ export class ToolRegistry {
         }
 
         worker.onerror = (error) => {
+          console.error(`[DAG] llm-call worker error | nodeId=${node.id} | error=${error.message}`);
           reject(new Error(error.message || 'Worker error'))
           worker.terminate()
           this.workers.delete(workerId)
@@ -811,9 +853,11 @@ export class ToolRegistry {
 
     // Webview DAG node types (T009)
     if (node.type === 'webview-browse' || node.type === 'webview-interact' || node.type === 'webview-extract') {
+      console.log(`[DAG] node webview | nodeId=${node.id} | type=${node.type} | dispatching to executeWebviewDAGNode`);
       return this.executeWebviewDAGNode(node);
     }
 
+    console.error(`[DAG] unknown node type | nodeId=${node.id} | type=${node.type}`);
     throw new Error(`Unknown node type: ${node.type as string}`)
   }
 
@@ -935,15 +979,19 @@ export class ToolRegistry {
   }
 
   async executeTool(call: ToolCall): Promise<ToolResponse> {
+    console.log(`[ToolRegistry] executeTool | name=${call.name} | args=${JSON.stringify(call.arguments).substring(0, 200)}`);
     const handler = this.handlers.get(call.name)
     if (!handler) {
+      console.error(`[ToolRegistry] executeTool | unknown tool | name=${call.name}`);
       return {
         success: false,
         error: `Unknown tool: ${call.name}`,
         code: 'UNKNOWN_TOOL'
       }
     }
-    return handler(call)
+    const result = await handler(call)
+    console.log(`[ToolRegistry] executeTool | name=${call.name} | success=${result.success}`);
+    return result
   }
 
   getToolDefinitions(): Tool[] {
@@ -967,6 +1015,8 @@ export class ToolRegistry {
     if (!toolName) {
       throw new Error(`Unknown webview DAG node type: ${node.type}`);
     }
+
+    console.log(`[DAG] executeWebviewDAGNode | nodeId=${node.id} | type=${node.type} → tool=${toolName}`);
 
     // Map DAG params to tool call arguments
     const args: Record<string, unknown> = {};
@@ -1004,6 +1054,7 @@ export class ToolRegistry {
         completedAt: Date.now(),
         ...(error ? { error } : {})
       };
+      console.log(`[DAG] updateWebviewDAGNode | planId=${this.activeWebviewDAGPlanId} | type=${type} | status=${status} | error=${error || 'none'}`);
       // If extract completes, mark plan as completed
       if (type === 'webview-extract') {
         notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, status === 'success' ? 'completed' : 'failed');
@@ -1017,6 +1068,7 @@ export class ToolRegistry {
     if (!this.activeWebviewDAGPlanId || this.activeWebviewDAGNodes.length === 0) return;
     const node = this.activeWebviewDAGNodes.find(n => n.type === type);
     if (!node) return;
+    console.log(`[DAG] skipWebviewDAGDependents | planId=${this.activeWebviewDAGPlanId} | failedType=${type} | skipping deps of ${node.id}`);
     this.activeWebviewDAGNodes = this.activeWebviewDAGNodes.map(n =>
       n.dependencies.includes(node.id) ? { ...n, status: 'skipped' as const } : n
     );
