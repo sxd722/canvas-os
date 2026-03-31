@@ -44,7 +44,7 @@ Tax rate sources:
 - UK VAT: https://www.gov.uk/vat-rates
 - Japan Consumption Tax: https://www.nta.go.jp/taxes/shohizei/
 
-Return ONLY the JSON array, no other text.`;
+You MUST invoke the execute_dag tool and pass the generated JSON array into the 'nodes' parameter. Do NOT output raw JSON as plain text.`;
 
 export const DAG_GENERATION_PROMPT_FLEXIBLE = `${DAG_GENERATION_PROMPT}
 
