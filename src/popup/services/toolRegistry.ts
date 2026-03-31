@@ -539,7 +539,7 @@ export class ToolRegistry {
 
       // Send interaction command to iframe and wait for result
       const interactionResult = await this.sendInteractionToIframe(
-        session.channelNonce, elementSelector, action, value
+        sessionId, session.channelNonce, elementSelector, action, value
       );
 
       if (!interactionResult.success) {
@@ -602,11 +602,11 @@ export class ToolRegistry {
         return { success: false, error: 'Already at the initial page, cannot go back' };
       }
 
-      // Send NAVIGATE_BACK command to iframe
-      window.postMessage({
+      // Send NAVIGATE_BACK command to the specific iframe by session ID
+      this.postToIframe(sessionId, {
         type: 'NAVIGATE_BACK',
         nonce: session.channelNonce
-      }, '*');
+      });
 
       // Wait for navigation to complete
       const navResult = await this.waitForNavigationBack(session.channelNonce, 10000);
@@ -666,7 +666,7 @@ export class ToolRegistry {
       }
 
       // Send EXTRACT_BY_SELECTOR to iframe via postMessage
-      const extractResult = await this.sendExtractBySelector(session.channelNonce, selector);
+      const extractResult = await this.sendExtractBySelector(sessionId, session.channelNonce, selector);
 
       // T019: Update extract DAG node status
       this.updateWebviewDAGNode('webview-extract', extractResult.success ? 'success' : 'error', extractResult.error);
@@ -1026,6 +1026,24 @@ export class ToolRegistry {
   // --- Webview postMessage Helpers ---
 
   /**
+   * Find the iframe element for a given session and postMessage to its contentWindow.
+   * This avoids broadcasting to all iframes via window.postMessage.
+   */
+  private postToIframe(sessionId: string, message: Record<string, unknown>): void {
+    const container = document.querySelector(`[data-node-id="${sessionId}"]`);
+    if (!container) {
+      console.warn(`[toolRegistry] No iframe container found for session ${sessionId}`);
+      return;
+    }
+    const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
+    if (!iframe?.contentWindow) {
+      console.warn(`[toolRegistry] Iframe or contentWindow not available for session ${sessionId}`);
+      return;
+    }
+    iframe.contentWindow.postMessage(message, '*');
+  }
+
+  /**
    * Send EXTRACT_CONTENT to iframe and wait for CONTENT_RESPONSE.
    * Uses window.postMessage to communicate with the content script running in the iframe.
    */
@@ -1100,13 +1118,13 @@ export class ToolRegistry {
 
       window.addEventListener('message', handler);
 
-      // Send EXTRACT_CONTENT command to iframe
-      window.postMessage({
+      // Send EXTRACT_CONTENT command to the specific iframe by session ID
+      this.postToIframe(sessionId, {
         type: 'EXTRACT_CONTENT',
         nonce,
         intent,
         sessionId
-      }, '*');
+      });
     });
   }
 
@@ -1114,6 +1132,7 @@ export class ToolRegistry {
    * Send INTERACT_ELEMENT to iframe and wait for INTERACTION_RESULT.
    */
   private sendInteractionToIframe(
+    sessionId: string,
     nonce: string,
     selector: string,
     action: 'click' | 'fill' | 'select',
@@ -1144,14 +1163,14 @@ export class ToolRegistry {
 
       window.addEventListener('message', handler);
 
-      // Send INTERACT_ELEMENT command to iframe
-      window.postMessage({
+      // Send INTERACT_ELEMENT command to the specific iframe by session ID
+      this.postToIframe(sessionId, {
         type: 'INTERACT_ELEMENT',
         nonce,
         selector,
         action,
         value
-      }, '*');
+      });
     });
   }
 
@@ -1188,7 +1207,7 @@ export class ToolRegistry {
   /**
    * Send EXTRACT_BY_SELECTOR to iframe and wait for EXTRACT_RESULT.
    */
-  private sendExtractBySelector(nonce: string, selector: string): Promise<{ success: boolean; data?: string; matchCount?: number; error?: string }> {
+  private sendExtractBySelector(sessionId: string, nonce: string, selector: string): Promise<{ success: boolean; data?: string; matchCount?: number; error?: string }> {
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
         window.removeEventListener('message', handler);
@@ -1214,12 +1233,12 @@ export class ToolRegistry {
 
       window.addEventListener('message', handler);
 
-      // Send EXTRACT_BY_SELECTOR command to iframe
-      window.postMessage({
+      // Send EXTRACT_BY_SELECTOR command to the specific iframe by session ID
+      this.postToIframe(sessionId, {
         type: 'EXTRACT_BY_SELECTOR',
         nonce,
         selector
-      }, '*');
+      });
     });
   }
 }
