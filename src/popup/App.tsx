@@ -67,6 +67,7 @@ export default function App() {
     toolRegistry.setArtifactContentGetter(getContent);
     toolRegistry.setArtifactMetadataGetter(getMetadata);
     toolRegistry.setWebviewSessionAccessor(webviewSessions);
+    toolRegistry.addCanvasNode = (node: any) => setCanvasNodes(prev => [...prev, node]);
   }, [getContent, getMetadata, webviewSessions]);
 
   useEffect(() => {
