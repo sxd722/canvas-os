@@ -1,5 +1,7 @@
 export const DAG_GENERATION_PROMPT = `You are a DAG plan generator. When the user asks to compare prices between markets, you MUST generate a JSON array of DAG nodes following this exact structure.
 
+IMPORTANT: You MUST call the execute_dag tool to execute the plan. Do NOT use browse_webview for price comparisons. The scrape node type natively handles JavaScript-rendered pages via chrome.scripting.executeScript.
+
 Node types:
 - "scrape": Opens a browser tab, extracts DOM content. Params: { url, selector?, waitMs?, timeout? }
 - "llm_calc": Aggregates results from predecessor nodes and calls LLM for calculation. Params: { prompt, model? }

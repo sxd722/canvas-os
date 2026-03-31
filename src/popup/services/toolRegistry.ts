@@ -148,7 +148,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'execute_dag',
-    description: 'Execute a plan of interdependent tasks as a Directed Acyclic Graph (DAG). Independent tasks run concurrently. Use this for complex multi-step workflows like research + code generation + summarization.',
+    description: 'Execute a plan of interdependent tasks as a Directed Acyclic Graph (DAG). Independent tasks run concurrently. Node types: llm-call, js-execution, web-operation, webview-browse/interact/extract, scrape (browser tab with DOM extraction), llm_calc (LLM aggregation of predecessor results). Use this for complex multi-step workflows like price comparison, research + code generation + summarization.',
     parameters: {
       type: 'object',
       properties: {
@@ -165,12 +165,12 @@ export const toolDefinitions: Tool[] = [
               },
               type: {
                 type: 'string',
-                enum: ['llm-call', 'js-execution', 'web-operation', 'webview-browse', 'webview-interact', 'webview-extract'],
+                enum: ['llm-call', 'js-execution', 'web-operation', 'webview-browse', 'webview-interact', 'webview-extract', 'scrape', 'llm_calc'],
                 description: 'Type of execution for this node'
               },
               params: {
                 type: 'object',
-                description: 'Parameters: llm-call={prompt}, js-execution={code,timeout}, web-operation={url,action}, webview-browse={url,intent,title}, webview-interact={session_id,element_selector,action,value}, webview-extract={session_id,selector,target}'
+                description: 'Parameters: llm-call={prompt}, js-execution={code,timeout}, web-operation={url,action}, webview-browse={url,intent,title}, webview-interact={session_id,element_selector,action,value}, webview-extract={session_id,selector,target}, scrape={url,selector?,waitMs?,timeout?}, llm_calc={prompt,model?}'
               },
               dependencies: {
                 type: 'array',
