@@ -1,6 +1,7 @@
 import { Tool, ToolCall, ToolResponse, LLMConfig, WebviewSession, PageExtraction, NavigationEntry } from '../../shared/types';
 import type { DAGNode, BrowseDAGNodeParams } from '../../shared/dagSchema';
 import { scoreElements } from './semanticExtractor';
+import { createLLMProvider } from '../../shared/llm-provider';
 
 export type DAGExecutionCallback = (planId: string, nodes: DAGNode[], status: 'running' | 'completed' | 'failed') => void;
 
@@ -855,6 +856,50 @@ export class ToolRegistry {
     if (node.type === 'webview-browse' || node.type === 'webview-interact' || node.type === 'webview-extract') {
       console.log(`[DAG] node webview | nodeId=${node.id} | type=${node.type} | dispatching to executeWebviewDAGNode`);
       return this.executeWebviewDAGNode(node);
+    }
+
+    // Scrape node type — execute visually via canvas webview
+    if (node.type === 'scrape') {
+      const params = node.params as { url: string; selector?: string; waitMs?: number; timeout?: number };
+      console.log(`[DAG] node scrape | nodeId=${node.id} | url=${params.url} | intent=extract page data for comparison | title=Scrape: ${params.url}`);
+      const result = await this.executeTool({
+        name: 'browse_webview',
+        arguments: {
+          url: params.url,
+          intent: 'extract page data for comparison',
+          title: 'Scrape: ' + params.url
+        }
+      });
+      const r = result as unknown as Record<string, unknown>;
+      if (result.success) {
+        console.log(`[DAG] node scrape success | nodeId=${node.id} | contentLength=${r.content ? String(r.content).length : 0} | sessionId=${r.sessionId || '(none)'}`);
+      } else {
+        console.error(`[DAG] node scrape failed | nodeId=${node.id} | error=${result.error || 'browse_webview failed'}`);
+      }
+      return result;
+    }
+
+    // LLM Calc node type — interpolate deps into prompt and call LLM provider
+    if (node.type === 'llm_calc') {
+      const params = node.params as { prompt: string; model?: string };
+      if (!currentLLMConfig) {
+        console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=LLM configuration is required`);
+        throw new Error('LLM configuration is required for llm_calc nodes');
+      }
+      const interpolatedPrompt = this.interpolateCodeWithDeps(params.prompt, depResults);
+      console.log(`[DAG] node llm_calc | nodeId=${node.id} | model=${params.model || 'default'} | promptLength=${interpolatedPrompt.length}`);
+      const provider = createLLMProvider(currentLLMConfig);
+      const result = await provider.complete(
+        [{ role: 'user', content: interpolatedPrompt }],
+        { model: params.model }
+      );
+      if (!result.success) {
+        const errMsg = result.error || 'LLM call failed';
+        console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=${errMsg}`);
+        throw new Error(errMsg);
+      }
+      console.log(`[DAG] node llm_calc success | nodeId=${node.id} | responseLength=${result.content?.length || 0} | model=${result.model}`);
+      return result.content;
     }
 
     console.error(`[DAG] unknown node type | nodeId=${node.id} | type=${node.type}`);
