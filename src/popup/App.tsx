@@ -8,7 +8,7 @@ import { llmService } from './services/llmService';
 import { useSandboxExecutor } from './hooks/useSandboxExecutor';
 import { useDagEngine } from './hooks/useDagEngine';
 import { HoverStateProvider } from './context/HoverStateContext';
-import { toolRegistry } from './services/toolRegistry';
+import { toolRegistry, setLLMConfig } from './services/toolRegistry';
 import { useArtifacts } from './hooks/useArtifacts';
 import { useWebviewSessions } from './hooks/useWebviewSessions';
 import { ToolTester } from './services/toolTester';
@@ -50,7 +50,10 @@ export default function App() {
         getCanvasNodes(),
         getChatMessages()
       ]);
-      if (savedConfig) setConfig(savedConfig);
+      if (savedConfig) {
+        setConfig(savedConfig);
+        setLLMConfig(savedConfig);
+      }
       setCanvasNodes(savedNodes);
       setMessages(savedMessages);
       
@@ -602,6 +605,7 @@ export default function App() {
   const handleSaveConfig = useCallback(async (newConfig: LLMConfig) => {
     await saveLLMConfig(newConfig);
     setConfig(newConfig);
+    setLLMConfig(newConfig);
     setShowConfig(false);
   }, []);
 

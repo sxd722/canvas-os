@@ -1,6 +1,6 @@
 ﻿# canvas-coworker Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-30
+Auto-generated from all feature plans. Last updated: 2026-03-31
 
 ## Active Technologies
 - TypeScript 5.x / JavaScript ES2022 + React 18+
@@ -90,8 +90,8 @@ window.__canvasNodes // Current canvas state
 | Artifacts | `src/popup/hooks/useArtifacts.ts` |
 
 ## Recent Changes
-- 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
-- 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
+- 009-fix-dag-config-scrape: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
+- 008-dag-scrape-llm-calc: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
 - 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
 
 <!-- MANUAL ADDITIONS START -->
