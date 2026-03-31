@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { useHoverState } from '../context/HoverStateContext';
 import InfiniteCanvas from './InfiniteCanvas';
 import CanvasNodeComponent from './CanvasNode';
@@ -8,6 +8,44 @@ interface CanvasPanelProps {
   nodes: CanvasNode[];
   onNodesChange: (nodes: CanvasNode[]) => void;
   highlightedNodeId?: string | null;
+}
+
+/** Build SVG paths for DAG dependency arrows */
+function buildDAGEdges(nodes: CanvasNode[]): { paths: string; defs: string } {
+  const dagNodes = nodes.filter(n => n.type === 'dag-node');
+  if (dagNodes.length === 0) return { paths: '', defs: '' };
+
+  const nodeMap = new Map(dagNodes.map(n => [n.id, n]));
+  const edgePaths: string[] = [];
+
+  for (const node of dagNodes) {
+    const content = node.content as { dependencies?: string[] } | undefined;
+    if (!content?.dependencies) continue;
+
+    const targetX = node.position.x + node.size.width / 2;
+    const targetY = node.position.y;
+
+    for (const depId of content.dependencies) {
+      const parentId = `dag-node-${depId}`;
+      const parent = nodeMap.get(parentId);
+      if (!parent) continue;
+
+      const sourceX = parent.position.x + parent.size.width / 2;
+      const sourceY = parent.position.y + parent.size.height;
+      const midY = (sourceY + targetY) / 2;
+
+      edgePaths.push(
+        `M ${sourceX} ${sourceY} C ${sourceX} ${midY}, ${targetX} ${midY}, ${targetX} ${targetY}`
+      );
+    }
+  }
+
+  if (edgePaths.length === 0) return { paths: '', defs: '' };
+
+  return {
+    paths: edgePaths.map(d => `<path d="${d}" fill="none" stroke="#4B5563" stroke-width="2" stroke-linecap="round"/>`).join(''),
+    defs: `<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4B5563"/></marker>`
+  };
 }
 
 export default function CanvasPanel({ nodes, onNodesChange, highlightedNodeId }: CanvasPanelProps) {
@@ -73,6 +111,8 @@ export default function CanvasPanel({ nodes, onNodesChange, highlightedNodeId }:
     }));
   }, []);
 
+  const { paths, defs } = useMemo(() => buildDAGEdges(nodes), [nodes]);
+
   return (
     <div 
       className="w-full h-full bg-gray-900 overflow-hidden cursor-grab active:cursor-grabbing canvas-bg"
@@ -83,6 +123,12 @@ export default function CanvasPanel({ nodes, onNodesChange, highlightedNodeId }:
       onWheel={handleZoom}
     >
       <InfiniteCanvas offset={canvasState.offset} scale={canvasState.scale}>
+        {paths && (
+          <svg className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible', width: 1, height: 1 }}>
+            <defs>{defs}</defs>
+            <g>{paths}</g>
+          </svg>
+        )}
         {nodes.map(node => (
           <CanvasNodeComponent
             key={node.id}

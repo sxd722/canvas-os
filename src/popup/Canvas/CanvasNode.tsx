@@ -173,13 +173,20 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
                             </div>
                         )}
                         {dagContent.error && (
-                            <div className="p-2 bg-red-950 rounded text-xs text-red-300">
-                                Error: {dagContent.error}
+                            <div className="p-2 bg-red-950 border border-red-800 rounded text-xs text-red-200">
+                                <div className="font-semibold text-red-400 mb-1">Error</div>
+                                <div className="whitespace-pre-wrap overflow-auto max-h-24">
+                                    {typeof dagContent.error === 'string' ? dagContent.error : JSON.stringify(dagContent.error, null, 2)}
+                                </div>
                             </div>
                         )}
                         {dagContent.result !== undefined && dagContent.status === 'success' && (
-                            <div className="p-2 bg-green-950 rounded text-xs text-green-300">
-                                <pre className="whitespace-pre-wrap overflow-auto max-h-20">
+                            <div className="p-2 bg-green-950 border border-green-800 rounded text-xs text-green-200">
+                                <div className="font-semibold text-green-400 mb-1 flex items-center gap-1">
+                                    <span>Result</span>
+                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-600 text-white text-[10px]">✓</span>
+                                </div>
+                                <pre className="whitespace-pre-wrap overflow-auto max-h-24">
                                     {typeof dagContent.result === 'string' ? dagContent.result : JSON.stringify(dagContent.result, null, 2)}
                                 </pre>
                             </div>
@@ -213,11 +220,24 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
         }
     };
 
+    // Glow ring for running dag-node
+    const isDagRunning = node.type === 'dag-node' &&
+        (node.content as DAGNodeContent | undefined)?.status === 'running';
+    // Error ring for failed dag-node
+    const isDagError = node.type === 'dag-node' &&
+        (node.content as DAGNodeContent | undefined)?.status === 'error';
+
+    const statusRing = isDagRunning
+        ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-gray-900 animate-pulse'
+        : isDagError
+            ? 'ring-2 ring-red-500/50 ring-offset-1 ring-offset-gray-900'
+            : isHighlighted
+                ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-900'
+                : '';
+
     return (
         <div
-            className={`absolute bg-gray-800 rounded-lg border-2 ${getNodeColor()} shadow-lg cursor-move select-none ${
-                isHighlighted ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-900' : ''
-            }`}
+            className={`absolute bg-gray-800 rounded-lg border-2 ${getNodeColor()} shadow-lg cursor-move select-none ${statusRing}`}
             style={{
                 left: node.position.x,
                 top: node.position.y,

@@ -1064,7 +1064,7 @@ export class ToolRegistry {
         });
       }, timeoutMs);
 
-      const handler = (event: MessageEvent) => {
+      const handler = async (event: MessageEvent) => {
         const data = event.data;
         if (data?.nonce !== nonce) return;
 
@@ -1075,9 +1075,9 @@ export class ToolRegistry {
           // Handle both message formats (direct content script and bridge)
           const payload = data.extraction || data.payload;
           if (payload) {
-            // Score elements with TF-IDF if intent provided
+            // Score elements with embedding model (fallback to TF-IDF) if intent provided
             if (intent && payload.elements && payload.elements.length > 0) {
-              const scored = scoreElements(intent, payload.elements.map((el: { text: string; description: string }) => ({
+              const scored = await scoreElements(intent, payload.elements.map((el: { text: string; description: string }) => ({
                 text: el.text || '',
                 description: el.description || ''
               })));
