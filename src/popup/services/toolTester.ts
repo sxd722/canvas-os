@@ -337,7 +337,7 @@ export class ToolTester {
         return [...prev, webViewNode];
       });
 
-      enrichedArgs = { ...args, canvasNodeId: nodeId };
+      enrichedArgs = { ...args, canvas_node_id: nodeId };
 
       this.setMessages(prev => [...prev, {
         id: generateId(),
