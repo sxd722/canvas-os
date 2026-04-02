@@ -43,6 +43,7 @@ export interface PageExtraction {
   totalElementsFound: number;
   success: boolean;
   error?: string;
+  markdown_content?: string;
 }
 
 export interface BrowsingIntent {

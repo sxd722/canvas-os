@@ -69,7 +69,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'browse_webview',
-    description: 'Open a URL in an embedded webview and extract relevant interactive elements based on a browsing intent',
+    description: 'Open a URL in an embedded webview and extract relevant interactive elements based on a browsing intent. Returns a markdown_content string representing the visual hierarchy of the page. Use this to understand the overall layout and content when exploring.',
     parameters: {
       type: 'object',
       properties: {

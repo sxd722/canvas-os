@@ -326,7 +326,8 @@ export class ToolRegistry {
         extraction: extraction.success ? {
           summary: extraction.summary || '',
           elements: extraction.elements || [],
-          total_elements_found: extraction.totalElementsFound || 0
+          total_elements_found: extraction.totalElementsFound || 0,
+          markdown_content: extraction.markdown_content || ''
         } : undefined,
         error: extraction.error
       };
@@ -408,7 +409,8 @@ export class ToolRegistry {
         extraction: extraction && extraction.success ? {
           summary: extraction.summary || '',
           elements: extraction.elements || [],
-          total_elements_found: extraction.totalElementsFound || 0
+          total_elements_found: extraction.totalElementsFound || 0,
+          markdown_content: extraction.markdown_content || ''
         } : undefined
       };
     });

@@ -53,6 +53,7 @@ function handleExtract(_intent) {
     var interactiveElements = extractInteractiveElements();
     var semanticChunks = extractSemanticChunks();
     var summary = extractPageSummary();
+    var markdownContent = domToMarkdownTruncated();
     window.parent.postMessage({
       type: 'CONTENT_RESPONSE',
       nonce: _channelNonce,
@@ -62,6 +63,7 @@ function handleExtract(_intent) {
         summary: summary,
         information_chunks: semanticChunks,
         interactive_elements: interactiveElements,
+        markdown_content: markdownContent,
         extractionMethod: 'semantic-chunk',
         extractedAt: Date.now(),
         totalChunksFound: semanticChunks.length,
@@ -79,6 +81,7 @@ function handleExtract(_intent) {
         summary: '',
         information_chunks: [],
         interactive_elements: [],
+        markdown_content: '',
         extractionMethod: 'semantic-chunk',
         extractedAt: Date.now(),
         totalChunksFound: 0,
@@ -228,9 +231,98 @@ function handleExtractBySelector(msg) {
   }
 }
 
+// --- Helper: Check if element is hidden ---
+function isElementHidden(el) {
+  var style = window.getComputedStyle(el);
+  if (style.display === 'none') return true;
+  if (style.visibility === 'hidden') return true;
+  var rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return true;
+  return false;
+}
+
 // --- Helper: Check if element is hidden (width/height <= 0) ---
 function isHidden(rect) {
   return rect.width <= 0 || rect.height <= 0;
+}
+
+// --- Spatial DOM Markdown distillation ---
+function domToMarkdown(node, depth) {
+  if (depth === undefined) depth = 0;
+  if (!node || depth > 40) return '';
+  if (node.nodeType !== 1 && node.nodeType !== 3) return '';
+
+  if (node.nodeType === 3) {
+    var text = node.textContent || '';
+    if (!text.trim()) return '';
+    return text;
+  }
+
+  var tag = (node.tagName || '').toUpperCase();
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'SVG' || tag === 'NOSCRIPT' || tag === 'HEAD' || tag === 'META' || tag === 'LINK') return '';
+  if (isElementHidden(node)) return '';
+
+  var result = '';
+
+  if (/^H[1-6]$/.test(tag)) {
+    var level = parseInt(tag.charAt(1));
+    result += '\n' + '#'.repeat(level) + ' ' + (node.textContent || '').trim() + '\n';
+    return result;
+  }
+
+  if (tag === 'P' || tag === 'SPAN' || tag === 'LI' || tag === 'TD' || tag === 'TH' || tag === 'DIV') {
+    var children = node.childNodes;
+    var childText = '';
+    for (var i = 0; i < children.length; i++) {
+      childText += domToMarkdown(children[i], depth + 1);
+    }
+    childText = childText.trim();
+    if (!childText) return '';
+    if (tag === 'LI') return '\n- ' + childText + '\n';
+    if (tag === 'TD' || tag === 'TH') return childText + '\t';
+    return childText + '\n';
+  }
+
+  if (tag === 'A') {
+    var linkText = (node.textContent || '').trim();
+    if (!linkText) return '';
+    var elId = node.id || generateSelector(node);
+    return '[' + linkText + '](id: ' + elId + ')';
+  }
+
+  if (tag === 'BUTTON') {
+    var btnText = (node.textContent || '').trim();
+    if (!btnText) return '';
+    var btnId = node.id || generateSelector(node);
+    return '[' + btnText + '](id: ' + btnId + ')';
+  }
+
+  if (tag === 'BR') return '\n';
+
+  if (tag === 'IMG') {
+    var alt = node.alt || node.getAttribute('aria-label') || '';
+    if (alt) return '[image: ' + alt + '] ';
+    return '';
+  }
+
+  var children2 = node.childNodes;
+  for (var j = 0; j < children2.length; j++) {
+    result += domToMarkdown(children2[j], depth + 1);
+  }
+
+  return result;
+}
+
+function domToMarkdownTruncated() {
+  var raw = domToMarkdown(document.body, 0);
+  var cleaned = raw.replace(/\n{3,}/g, '\n\n').trim();
+  if (cleaned.length > 4000) {
+    cleaned = cleaned.substring(0, 4000);
+    var lastNewline = cleaned.lastIndexOf('\n');
+    if (lastNewline > 3500) cleaned = cleaned.substring(0, lastNewline);
+    cleaned += '\n... (truncated)';
+  }
+  return cleaned;
 }
 
 // --- Helper: Find structural context for an element ---
