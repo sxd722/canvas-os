@@ -1,6 +1,6 @@
 ﻿# canvas-coworker Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-31
+Auto-generated from all feature plans. Last updated: 2026-04-01
 
 ## Active Technologies
 - TypeScript 5.x / JavaScript ES2022 + React 18+
@@ -13,6 +13,12 @@ Auto-generated from all feature plans. Last updated: 2026-03-31
 - TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3 (006-macbook-price-arbitrage)
 - chrome.storage.local (LLM config), chrome.storage.session (ephemeral DAG state) (006-macbook-price-arbitrage)
 - In-memory (React state) for webview sessions; chrome.storage for extension config (007-webview-browsing-agent)
+- TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3 APIs (011-fix-dag-scrape-visibility)
+- JavaScript ES2022 (webview_bridge.js), TypeScript 5.x (semanticExtractor.ts) + Chrome Extensions MV3, Transformers.js (existing) (012-improve-price-extraction)
+- N/A (in-memory processing only) (012-improve-price-extraction)
+- TypeScript 5.x (ES2022) + JavaScript ES2022 (014-bundle-model-inference)
+- TypeScript 5.x (ES2022) + JavaScript ES2022 + React 18+, Vite 5.x, Chrome Extensions MV3, Tailwind CSS 3.x (015-fix-iframe-targeting)
+- In-memory (React state for sessions); chrome.storage for extension config (015-fix-iframe-targeting)
 
 ## Project Structure
 
@@ -64,6 +70,25 @@ TypeScript 5.x / JavaScript ES2022: Follow standard conventions
 - ToolTester service for testing tools without LLM API calls
 - Max concurrent DAG nodes limited to 4
 
+### Phase 8: Universal Semantic Lookup Tool (013-semantic-lookup-tool)
+- **Semantic Chunks**: Extracts text content (p, span, td) paired with structural context (h1-h6 headings, th headers, aria-labels)
+- **Context Pairing**: Walks up DOM tree to find closest meaningful context for each text element
+- **Hybrid Payload**: Returns both `information_chunks` (top 5 static text) and `interactive_elements` (top 5 navigation elements)
+- **Pure Cosine Similarity**: Uses Transformers.js embeddings for semantic ranking, no domain-specific boost logic
+- **Hidden Element Filter**: Width/height > 0 check remains
+- **Deduplication**: Set-based text tracking prevents duplicate chunks
+- **No Hardcoded Patterns**: Removed all CURRENCY_PATTERN and price-specific logic from webview_bridge.js
+
+### Phase 9: Bundle Model for Local Inference (014-bundle-model-inference)
+- **Model Bundling**: Xenova/all-MiniLM-L6-v2 ONNX model (~22MB) bundled in public/models/
+- **Offline Capability**: Model loads from local files with `local_files_only: true` option
+- **Build Validation**: Build fails with clear error if model files are missing
+- **No Network Requests**: Zero external requests to Hugging Face Hub during inference
+- **Performance**: Model loads once per session, reused across all webview calls (singleton pattern)
+- **Fallback**: TF-IDF scoring remains as fallback if model loading fails
+
+## Testing via Chrome DevTools (CDP)
+
 ## Testing via Chrome DevTools (CDP)
 
 The extension exposes testing utilities via `window` for CDP access on port 9222:
@@ -88,11 +113,13 @@ window.__canvasNodes // Current canvas state
 | DAG Engine | `src/popup/hooks/useDagEngine.ts`, `src/popup/Canvas/DAGNode.tsx` |
 | Tool Testing | `src/popup/services/toolTester.ts`, `src/popup/components/ToolTester/ToolTesterPanel.tsx` |
 | Artifacts | `src/popup/hooks/useArtifacts.ts` |
+| Semantic Lookup | `src/content/webview_bridge.js`, `src/popup/services/semanticExtractor.ts` |
+| Model Bundling | `public/models/Xenova/all-MiniLM-L6-v2/`, `src/popup/services/semanticExtractor.ts`, `vite.config.js` |
 
 ## Recent Changes
-- 009-fix-dag-config-scrape: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
-- 008-dag-scrape-llm-calc: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
-- 007-webview-browsing-agent: Added TypeScript 5.x (ES2022) + React 18+, Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
+- 015-fix-iframe-targeting: Added TypeScript 5.x (ES2022) + JavaScript ES2022 + React 18+, Vite 5.x, Chrome Extensions MV3, Tailwind CSS 3.x
+- 014-bundle-model-inference: Bundled Xenova/all-MiniLM-L6-v2 model locally, added build validation, enabled offline inference
+- 013-semantic-lookup-tool: Replaced price-specific logic with universal semantic chunk extraction, added hybrid payload structure
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

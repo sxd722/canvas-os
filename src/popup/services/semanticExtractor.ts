@@ -36,14 +36,15 @@ async function getEmbeddingPipeline(): Promise<Awaited<ReturnType<typeof pipelin
 
   modelLoading = true;
   try {
-    console.log(`[semanticExtractor] Loading embedding model: ${MODEL_ID}...`);
+    console.log(`[semanticExtractor] Loading embedding model from local files: ${MODEL_ID}...`);
     embeddingPipeline = await pipeline('feature-extraction', MODEL_ID, {
         quantized: true,
+        local_files_only: true,
       } as Record<string, unknown>);
-    console.log('[semanticExtractor] Embedding model loaded successfully');
+    console.log('[semanticExtractor] Embedding model loaded successfully from local files');
     return embeddingPipeline;
   } catch (err) {
-    console.warn('[semanticExtractor] Failed to load embedding model, falling back to TF-IDF:', err);
+    console.warn('[semanticExtractor] Failed to load embedding model from local files, falling back to TF-IDF:', err);
     modelLoadFailed = true;
     return null;
   } finally {

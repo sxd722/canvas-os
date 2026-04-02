@@ -48,9 +48,10 @@ window.addEventListener('message', function (event) {
 });
 
 // --- EXTRACT_CONTENT handler ---
-function handleExtract(intent) {
+function handleExtract(_intent) {
   try {
-    var elements = extractInteractiveElements();
+    var interactiveElements = extractInteractiveElements();
+    var semanticChunks = extractSemanticChunks();
     var summary = extractPageSummary();
     window.parent.postMessage({
       type: 'CONTENT_RESPONSE',
@@ -59,10 +60,12 @@ function handleExtract(intent) {
         url: location.href,
         title: document.title,
         summary: summary,
-        elements: elements,
-        extractionMethod: 'heuristic',
+        information_chunks: semanticChunks,
+        interactive_elements: interactiveElements,
+        extractionMethod: 'semantic-chunk',
         extractedAt: Date.now(),
-        totalElementsFound: elements.length,
+        totalChunksFound: semanticChunks.length,
+        totalInteractiveFound: interactiveElements.length,
         success: true
       }
     }, '*');
@@ -74,10 +77,12 @@ function handleExtract(intent) {
         url: location.href,
         title: document.title,
         summary: '',
-        elements: [],
-        extractionMethod: 'heuristic',
+        information_chunks: [],
+        interactive_elements: [],
+        extractionMethod: 'semantic-chunk',
         extractedAt: Date.now(),
-        totalElementsFound: 0,
+        totalChunksFound: 0,
+        totalInteractiveFound: 0,
         success: false,
         error: err instanceof Error ? err.message : String(err)
       }
@@ -223,6 +228,41 @@ function handleExtractBySelector(msg) {
   }
 }
 
+// --- Helper: Check if element is hidden (width/height <= 0) ---
+function isHidden(rect) {
+  return rect.width <= 0 || rect.height <= 0;
+}
+
+// --- Helper: Find structural context for an element ---
+function findStructuralContext(el) {
+  var context = [];
+  var current = el.parentElement;
+  
+  // Walk up the DOM tree to find structural context
+  while (current && current !== document.body) {
+    // Check for headings (h1-h6)
+    if (/^H[1-6]$/i.test(current.tagName)) {
+      var headingText = (current.textContent || '').trim();
+      if (headingText) context.unshift(headingText);
+    }
+    // Check for table headers (th)
+    else if (current.tagName === 'TH') {
+      var headerText = (current.textContent || '').trim();
+      if (headerText) context.unshift(headerText);
+    }
+    // Check for aria-labels
+    var ariaLabel = current.getAttribute('aria-label');
+    if (ariaLabel) context.unshift(ariaLabel);
+    
+    current = current.parentElement;
+    
+    // Limit context depth to avoid excessive nesting
+    if (context.length >= 3) break;
+  }
+  
+  return context;
+}
+
 // --- Extract all interactive elements from the DOM ---
 function extractInteractiveElements() {
   var elements = [];
@@ -234,6 +274,7 @@ function extractInteractiveElements() {
     var text = (el.textContent || '').trim();
     if (!text && !href) return;
     var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return; // Filter hidden
     elements.push({
       id: 'link-' + index,
       selector: generateSelector(el),
@@ -252,6 +293,7 @@ function extractInteractiveElements() {
   buttons.forEach(function (el, index) {
     var text = (el.textContent || '').trim();
     var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
     elements.push({
       id: 'button-' + index,
       selector: generateSelector(el),
@@ -268,6 +310,7 @@ function extractInteractiveElements() {
   var inputs = document.querySelectorAll('input:not([type="submit"]):not([type="hidden"]), select, textarea');
   inputs.forEach(function (el, index) {
     var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
     var inputType = el.tagName.toLowerCase() === 'input'
       ? el.type || 'text'
       : el.tagName.toLowerCase();
@@ -301,6 +344,7 @@ function extractInteractiveElements() {
     if (tag === 'button' || tag === 'a') return;
     var text = (el.textContent || '').trim();
     var rect = el.getBoundingClientRect();
+    if (isHidden(rect)) return;
     elements.push({
       id: 'clickable-' + index,
       selector: generateSelector(el),
@@ -314,6 +358,42 @@ function extractInteractiveElements() {
   });
 
   return elements;
+}
+
+// --- Extract semantic chunks with structural context ---
+function extractSemanticChunks() {
+  var chunks = [];
+  var extractedTexts = new Set(); // For deduplication
+  
+  // Extract text content from semantic elements (p, span, td)
+  var textElements = document.querySelectorAll('p, span, td, li');
+  textElements.forEach(function (el, index) {
+    var text = (el.textContent || '').trim();
+    if (!text || text.length < 3) return; // Skip very short text
+    if (extractedTexts.has(text)) return; // Skip duplicate
+    
+    var rect = el.getBoundingClientRect();
+    if (isHidden(rect)) return;
+    
+    extractedTexts.add(text);
+    
+    // Find structural context (headings, table headers, aria-labels)
+    var context = findStructuralContext(el);
+    
+    chunks.push({
+      id: 'chunk-' + index,
+      selector: generateSelector(el),
+      xpath: getXPath(el),
+      type: 'text',
+      text: text.substring(0, 200),
+      context: context,
+      description: context.length > 0 ? context.join(' > ') + ' > ' + text.substring(0, 50) : text.substring(0, 100),
+      relevanceScore: 0,
+      boundingRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    });
+  });
+  
+  return chunks;
 }
 
 // --- Extract page summary ---

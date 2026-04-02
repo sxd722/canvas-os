@@ -11,6 +11,7 @@ export interface EmbeddedWebViewProps {
   url: string;
   title?: string;
   nodeId: string;
+  sessionId?: string;
   channelNonce?: string;
   onStatusChange?: (status: WebViewStatus) => void;
   onExtraction?: (extraction: PageExtraction) => void;
@@ -21,11 +22,11 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
   url,
   title,
   nodeId,
+  sessionId,
   channelNonce,
   onStatusChange,
   onExtraction,
-  onInteractionResult
-}: EmbeddedWebViewProps, ref) {
+  onInteractionResult}: EmbeddedWebViewProps, ref) {
   const [status, setStatus] = useState<WebViewStatus>('loading');
   const [retryCount, setRetryCount] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -157,7 +158,7 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
   }, [url, retryCount, status, updateStatus]);
 
   return (
-    <div className="h-full flex flex-col" data-node-id={nodeId}>
+    <div className="h-full flex flex-col" data-node-id={nodeId} data-session-id={sessionId}>
       <div className="flex items-center justify-between mb-2 shrink-0">
         <span className="text-xs text-blue-400 truncate max-w-[70%]" title={url}>
           {title || new URL(url).hostname}

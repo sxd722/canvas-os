@@ -1,6 +1,43 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+import { existsSync } from 'fs';
+
+// Model file validation
+const MODEL_DIR = 'public/models/Xenova/all-MiniLM-L6-v2';
+const REQUIRED_FILES = [
+  'onnx/model_quantized.onnx',
+  'tokenizer.json',
+  'config.json'
+];
+
+function validateModelFiles() {
+  console.log('\n🔍 Validating model files...');
+  
+  const missingFiles = [];
+  const modelPath = resolve(__dirname, MODEL_DIR);
+  
+  for (const file of REQUIRED_FILES) {
+    const filePath = resolve(modelPath, file);
+    if (!existsSync(filePath)) {
+      missingFiles.push(file);
+    }
+  }
+  
+  if (missingFiles.length > 0) {
+    console.error('\n❌ Build failed: Missing model files:');
+    missingFiles.forEach(f => console.error(`   - ${MODEL_DIR}/${f}`));
+    console.error('\n📥 Download instructions:');
+    console.error('   Run the download commands from specs/014-bundle-model-inference/tasks.md Phase 2\n');
+    console.error('   Or download manually from: https://huggingface.co/Xenova/all-MiniLM-L6-v2\n');
+    process.exit(1);
+  }
+  
+  console.log('✅ All model files validated\n');
+}
+
+// Run validation before build
+validateModelFiles();
 
 export default defineConfig({
   plugins: [react()],

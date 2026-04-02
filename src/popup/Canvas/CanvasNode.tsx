@@ -193,15 +193,17 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
                         )}
                     </div>
                 );
-            case 'web-view':
-                const webContent = node.content as { url: string; title: string; status: 'loading' | 'loaded' | 'blocked' | 'error' };
+            case 'web-view': {
+                const webContent = node.content as { url: string; title: string; status: 'loading' | 'loaded' | 'blocked' | 'error'; sessionId?: string };
                 return (
                     <EmbeddedWebView
                         url={webContent.url}
                         title={webContent.title}
                         nodeId={node.id}
+                        sessionId={webContent.sessionId}
                     />
                 );
+            }
             default:
                 return (
                     <p className="text-xs text-gray-300 whitespace-pre-wrap">
