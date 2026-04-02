@@ -233,6 +233,7 @@ export class ToolRegistry {
       const url = call.arguments.url as string;
       const title = (call.arguments.title as string) || (() => { try { return new URL(url).hostname; } catch { return url; } })();
       const intent = call.arguments.intent as string;
+      const mode = (call.arguments.mode as string) || 'explore';
       let canvasNodeId = call.arguments.canvas_node_id as string | undefined;
 
       if (!canvasNodeId) {
@@ -317,18 +318,24 @@ export class ToolRegistry {
         this.dagEngine.updateWebviewDAGNode('webview-browse', 'success');
       }
 
+      const extractionPayload = extraction.success
+        ? {
+            elements: extraction.elements || [],
+            total_elements_found: extraction.totalElementsFound || 0,
+            ...(mode === 'explore' ? {
+              summary: extraction.summary || '',
+              markdown_content: extraction.markdown_content || ''
+            } : {})
+          }
+        : undefined;
+
       return {
         success: true,
         session_id: session.id,
         status: extraction.success ? 'loaded' : 'error',
         url: extraction.url || url,
         title: extraction.title || title,
-        extraction: extraction.success ? {
-          summary: extraction.summary || '',
-          elements: extraction.elements || [],
-          total_elements_found: extraction.totalElementsFound || 0,
-          markdown_content: extraction.markdown_content || ''
-        } : undefined,
+        extraction: extractionPayload,
         error: extraction.error
       };
     });

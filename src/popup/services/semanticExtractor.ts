@@ -245,10 +245,12 @@ export async function scoreElements(
 
   // Try embedding-based scoring first
   const embeddingResult = await scoreElementsEmbedding(intent, elements, topN);
-  if (embeddingResult) return embeddingResult;
+  if (embeddingResult) {
+    return embeddingResult.filter(el => el.relevanceScore > 0.35);
+  }
 
   // Fall back to TF-IDF
-  return scoreElementsTfIdf(intent, elements, topN);
+  return scoreElementsTfIdf(intent, elements, topN).filter(el => el.relevanceScore > 0.35);
 }
 
 // --- Heuristic fallback: build page summary from structured data ---

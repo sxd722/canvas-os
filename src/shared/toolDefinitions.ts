@@ -76,7 +76,8 @@ export const toolDefinitions: Tool[] = [
         url: { type: 'string', description: 'URL to open in the webview' },
         title: { type: 'string', description: 'Label for the webview node' },
         intent: { type: 'string', description: 'What you are looking for on this page' },
-        canvas_node_id: { type: 'string', description: 'Canvas node ID of the web-view node, used to locate the iframe in the DOM' }
+        canvas_node_id: { type: 'string', description: 'Canvas node ID of the web-view node, used to locate the iframe in the DOM' },
+        mode: { type: 'string', enum: ['explore', 'targeted'], description: "Use 'explore' to get a full Markdown layout of the page. Use 'targeted' to save tokens and ONLY get specific elements matching your intent." }
       },
       required: ['url', 'intent']
     }
