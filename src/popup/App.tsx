@@ -68,6 +68,13 @@ export default function App() {
     toolRegistry.setArtifactMetadataGetter(getMetadata);
     toolRegistry.setWebviewSessionAccessor(webviewSessions);
     toolRegistry.addCanvasNode = (node: any) => setCanvasNodes(prev => [...prev, node]);
+    toolRegistry.updateCanvasNode = (nodeId: string, updates: Record<string, unknown>) => {
+      setCanvasNodes(prev => prev.map(n => {
+        if (n.id !== nodeId) return n;
+        const contentUpdate = updates.content as Record<string, unknown> | undefined;
+        return { ...n, ...updates, content: contentUpdate ? { ...n.content as object, ...contentUpdate } as any : n.content };
+      }));
+    };
   }, [getContent, getMetadata, webviewSessions]);
 
   useEffect(() => {
@@ -197,6 +204,24 @@ export default function App() {
       
       if (toolCall.name === 'execute_dag') {
         const nodes = toolCall.arguments.nodes as unknown[];
+        
+        const dagCanvasNodes = (nodes as any[]).map((node): CanvasNode => ({
+          id: `dag-node-${node.id}`,
+          type: 'dag-node',
+          content: {
+            nodeId: node.id,
+            nodeType: node.type,
+            params: node.params,
+            dependencies: node.dependencies || [],
+            status: 'pending'
+          },
+          position: { x: Math.random() * 500, y: Math.random() * 500 },
+          size: { width: 250, height: 150 },
+          createdAt: Date.now()
+        }));
+        
+        setCanvasNodes(prev => [...prev, ...dagCanvasNodes]);
+        
         const message: ChatMessage = {
           id: generateId(),
           role: 'assistant',

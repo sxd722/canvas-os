@@ -16,6 +16,7 @@ export interface WebviewSession {
   channelNonce: string;
   createdAt: number;
   lastActiveAt: number;
+  canvasNodeId?: string;
 }
 
 export interface InteractiveElement {

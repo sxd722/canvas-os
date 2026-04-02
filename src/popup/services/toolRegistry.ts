@@ -221,6 +221,7 @@ export class ToolRegistry {
   private activeWebviewDAGPlanId: string | null = null;
   private activeWebviewDAGNodes: DAGNode[] = [];
   public addCanvasNode: ((node: any) => void) | null = null;
+  public updateCanvasNode: ((nodeId: string, updates: Record<string, unknown>) => void) | null = null;
 
   constructor() {
     this.registerDefaultHandlers();
@@ -403,8 +404,9 @@ export class ToolRegistry {
       const url = call.arguments.url as string;
       const title = (call.arguments.title as string) || (() => { try { return new URL(url).hostname; } catch { return url; } })();
       const intent = call.arguments.intent as string;
+      const canvasNodeId = call.arguments.canvasNodeId as string | undefined;
 
-      console.log(`[DAG] browse_webview called | url=${url} | intent=${intent} | title=${title}`);
+      console.log(`[DAG] browse_webview called | url=${url} | intent=${intent} | title=${title} | canvasNodeId=${canvasNodeId || '(none)'}`);
 
       if (!this.webviewSessions) {
         return { success: false, error: 'Webview session manager not configured' };
@@ -417,7 +419,10 @@ export class ToolRegistry {
       }
 
       const session = this.webviewSessions.createSession(url, intent);
-      console.log(`[DAG] browse_webview session created | sessionId=${session.id} | nonce=${session.channelNonce}`);
+      if (canvasNodeId) {
+        this.webviewSessions.updateSession(session.id, { canvasNodeId });
+      }
+      console.log(`[DAG] browse_webview session created | sessionId=${session.id} | nonce=${session.channelNonce} | canvasNodeId=${canvasNodeId || '(none)'}`);
 
       // T018: Generate webview browsing DAG plan
       this.activeWebviewDAGPlanId = `webview-plan-${Date.now()}`;
@@ -889,12 +894,18 @@ export class ToolRegistry {
         arguments: {
           url: params.url,
           intent: 'extract page data for comparison',
-          title: 'Scrape: ' + params.url
+          title: 'Scrape: ' + params.url,
+          canvasNodeId
         }
       });
       const r = result as unknown as Record<string, unknown>;
       if (result.success) {
-        console.log(`[DAG] node scrape success | nodeId=${node.id} | contentLength=${r.content ? String(r.content).length : 0} | sessionId=${r.sessionId || '(none)'}`);
+        console.log(`[DAG] node scrape success | nodeId=${node.id} | contentLength=${r.content ? String(r.content).length : 0} | sessionId=${r.session_id || '(none)'}`);
+        const browseSessionId = r.session_id as string | undefined;
+        if (browseSessionId && this.updateCanvasNode) {
+          this.updateCanvasNode(canvasNodeId, { content: { sessionId: browseSessionId } });
+          console.log(`[DAG] node scrape | wrote sessionId to canvas node | canvasNodeId=${canvasNodeId} | sessionId=${browseSessionId}`);
+        }
       } else {
         console.error(`[DAG] node scrape failed | nodeId=${node.id} | error=${result.error || 'browse_webview failed'}`);
       }
@@ -1160,9 +1171,10 @@ export class ToolRegistry {
    * This avoids broadcasting to all iframes via window.postMessage.
    */
   private postToIframe(sessionId: string, message: Record<string, unknown>): void {
-    const container = document.querySelector(`[data-node-id="${sessionId}"]`);
+    const container = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (!container) {
-      console.warn(`[toolRegistry] No iframe container found for session ${sessionId}`);
+      const allContainers = document.querySelectorAll('[data-session-id]');
+      console.warn(`[toolRegistry] No container found for session ${sessionId}. Available containers:`, Array.from(allContainers).map(el => el.getAttribute('data-session-id')).join(', '));
       return;
     }
     const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
@@ -1247,22 +1259,26 @@ export class ToolRegistry {
 
       window.addEventListener('message', handler);
 
-      // Find iframe by URL — retry every 100ms for up to 2 seconds
+      // Find iframe by session-id — retry every 100ms for up to 2 seconds
       let retries = 0;
-      const maxRetries = 20; // 20 * 100ms = 2s
+      const maxRetries = 20;
       const tryFindAndSend = () => {
         if (settled) return;
-        const iframe = document.querySelector<HTMLIFrameElement>(`iframe[src="${url}"]`);
-        if (iframe?.contentWindow) {
-          console.log(`[ToolRegistry] waitForExtraction | found iframe by URL | url=${url} | retries=${retries}`);
-          iframe.contentWindow.postMessage({ type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, '*');
-        } else if (retries < maxRetries) {
+        const container = document.querySelector(`[data-session-id="${sessionId}"]`);
+        if (container) {
+          const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
+          if (iframe?.contentWindow) {
+            console.log(`[ToolRegistry] waitForExtraction | found iframe by sessionId | sessionId=${sessionId} | retries=${retries}`);
+            iframe.contentWindow.postMessage({ type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, '*');
+            return;
+          }
+        }
+        if (retries < maxRetries) {
           retries++;
-          console.log(`[ToolRegistry] waitForExtraction | iframe not found, retrying | url=${url} | retry=${retries}/${maxRetries}`);
+          console.log(`[ToolRegistry] waitForExtraction | iframe not found, retrying | sessionId=${sessionId} | retry=${retries}/${maxRetries}`);
           setTimeout(tryFindAndSend, 100);
         } else {
-          // Fallback: try postToIframe by session ID
-          console.warn(`[ToolRegistry] waitForExtraction | iframe not found by URL after ${maxRetries} retries, falling back to postToIframe | url=${url} | sessionId=${sessionId}`);
+          console.warn(`[ToolRegistry] waitForExtraction | iframe not found after ${maxRetries} retries | sessionId=${sessionId}`);
           this.postToIframe(sessionId, { type: 'EXTRACT_CONTENT', nonce, intent, sessionId });
         }
       };
