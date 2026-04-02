@@ -37,7 +37,8 @@ export interface PageExtraction {
   url: string;
   title: string;
   summary: string;
-  elements: InteractiveElement[];
+  interactive_elements: InteractiveElement[];
+  information_chunks: Array<Record<string, unknown>>;
   extractionMethod: 'tfidf' | 'embedding' | 'heuristic' | 'css-selector';
   extractedAt: number;
   totalElementsFound: number;

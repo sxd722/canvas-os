@@ -302,7 +302,7 @@ export class ToolRegistry {
       // Wait for page to load via postMessage from iframe (up to 10s)
       console.log(`[DAG] browse_webview | waiting for extraction | sessionId=${session.id} | timeout=10000ms`);
       const extraction = await waitForExtraction(session.channelNonce, session.id, intent, 10000, url, canvasNodeId);
-      console.log(`[DAG] browse_webview | extraction result | sessionId=${session.id} | success=${extraction.success} | elements=${extraction.elements?.length || 0} | error=${extraction.error || 'none'}`);
+      console.log(`[DAG] browse_webview | extraction result | sessionId=${session.id} | success=${extraction.success} | elements=${extraction.interactive_elements?.length || 0} | error=${extraction.error || 'none'}`);
 
       this.webviewSessions.updateSession(session.id, {
         status: extraction.success ? 'loaded' : 'error',
@@ -320,7 +320,8 @@ export class ToolRegistry {
 
       const extractionPayload = extraction.success
         ? {
-            elements: extraction.elements || [],
+            interactive_elements: extraction.interactive_elements || [],
+            information_chunks: extraction.information_chunks || [],
             total_elements_found: extraction.totalElementsFound || 0,
             ...(mode === 'explore' ? {
               summary: extraction.summary || '',
@@ -415,7 +416,8 @@ export class ToolRegistry {
         navigated: interactionResult.navigated || false,
         extraction: extraction && extraction.success ? {
           summary: extraction.summary || '',
-          elements: extraction.elements || [],
+          interactive_elements: extraction.interactive_elements || [],
+          information_chunks: extraction.information_chunks || [],
           total_elements_found: extraction.totalElementsFound || 0,
           markdown_content: extraction.markdown_content || ''
         } : undefined
@@ -470,7 +472,7 @@ export class ToolRegistry {
         title: navResult.title || (currentEntry?.title || session.title),
         extraction: extraction && extraction.success ? {
           summary: extraction.summary || '',
-          elements: extraction.elements || [],
+          interactive_elements: extraction.interactive_elements || [],
           total_elements_found: extraction.totalElementsFound || 0
         } : undefined
       };

@@ -78,16 +78,16 @@ export function cosineSimilarityVectors(a: number[], b: number[]): number {
 
 async function scoreElementsEmbedding(
   intent: string,
-  elements: Array<{ text: string; description: string }>,
+  elements: Array<{ text: string; description: string; element: any }>,
   topN: number = 15
-): Promise<Array<{ text: string; description: string; relevanceScore: number }> | null> {
+): Promise<Array<{ text: string; description: string; relevanceScore: number; element: any }> | null> {
   const pipe = await getEmbeddingPipeline();
   if (!pipe) return null;
 
   // Encode intent
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const intentOutput: any = await pipe(intent, { pooling: 'mean', normalize: true } as any);
-  const intentEmbedding: number[] = Array.from(intentOutput.data || []);
+  const intentEmbedding: number[] = intentOutput.tolist()[0];
   if (!intentEmbedding || intentEmbedding.length === 0) return null;
 
   // Encode each element description
@@ -98,9 +98,7 @@ async function scoreElementsEmbedding(
   // Batch encode elements
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const elementsOutput: any = await pipe(elementTexts as any, { pooling: 'mean', normalize: true } as any);
-  const elementEmbeddings: number[][] = elementsOutput.data
-    ? Array.from(elementsOutput.data)
-    : [];
+  const elementEmbeddings: number[][] = elementsOutput.tolist();
 
   if (elementEmbeddings.length !== elements.length) return null;
 
@@ -108,11 +106,12 @@ async function scoreElementsEmbedding(
   return elements
     .map((el, index) => {
       const embedding = elementEmbeddings[index];
-      if (!embedding) return { text: el.text, description: el.description, relevanceScore: 0 };
+      if (!embedding) return { text: el.text, description: el.description, relevanceScore: 0, element: el.element};
       return {
         text: el.text,
         description: el.description,
-        relevanceScore: cosineSimilarityVectors(intentEmbedding, Array.from(embedding))
+        relevanceScore: cosineSimilarityVectors(intentEmbedding, Array.from(embedding)),
+        element: el.element
       };
     })
     .sort((a, b) => b.relevanceScore - a.relevanceScore)
@@ -199,14 +198,14 @@ export function cosineSimilarity(vecA: Map<string, number>, vecB: Map<string, nu
 
 function scoreElementsTfIdf(
   intent: string,
-  elements: Array<{ text: string; description: string }>,
+  elements: Array<{ text: string; description: string; element: any }>,
   topN: number = 15
-): Array<{ text: string; description: string; relevanceScore: number }> {
+): Array<{ text: string; description: string; relevanceScore: number; element: any }> {
   if (elements.length === 0) return [];
 
   const intentTokens = tokenize(intent);
   if (intentTokens.length === 0) {
-    return elements.map(el => ({ text: el.text, description: el.description, relevanceScore: 0 }));
+    return elements.map(el => ({ text: el.text, description: el.description, relevanceScore: 0, element: el.element }));
   }
 
   const elementTokenArrays = elements.map(el => tokenize(`${el.text} ${el.description}`));
@@ -216,7 +215,7 @@ function scoreElementsTfIdf(
   const scored = elements.map((el, index) => {
     const elTfIdf = computeTfIdf(elementTokenArrays[index], corpus);
     const score = cosineSimilarity(intentTfIdf, elTfIdf);
-    return { text: el.text, description: el.description, relevanceScore: score };
+    return { text: el.text, description: el.description, relevanceScore: score, element: el.element };
   });
 
   return scored
@@ -230,6 +229,7 @@ export interface ScoreableItem {
   text: string;
   description: string;
   relevanceScore: number;
+  element: any;
 }
 
 /**
@@ -238,7 +238,7 @@ export interface ScoreableItem {
  */
 export async function scoreElements(
   intent: string,
-  elements: Array<{ text: string; description: string }>,
+  elements: Array<{ text: string; description: string; element: any }>,
   topN: number = 15
 ): Promise<ScoreableItem[]> {
   if (elements.length === 0) return [];

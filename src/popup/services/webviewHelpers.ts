@@ -55,7 +55,8 @@ export function waitForExtraction(nonce: string, sessionId: string, intent: stri
         url,
         title: '',
         summary: '',
-        elements: [],
+        interactive_elements: [],
+        information_chunks: [],
         extractionMethod: 'tfidf',
         extractedAt: Date.now(),
         totalElementsFound: 0,
@@ -84,31 +85,62 @@ export function waitForExtraction(nonce: string, sessionId: string, intent: stri
         // Handle both message formats (direct content script and bridge)
         const payload = data.extraction || data.payload;
         if (payload) {
-          // Score elements with embedding model (fallback to TF-IDF) if intent provided
-          if (intent && payload.elements && payload.elements.length > 0) {
-            const scored = await scoreElements(intent, payload.elements.map((el: { text: string; description: string }) => ({
-              text: el.text || '',
-              description: el.description || ''
-            })));
+          const interactiveElements = payload.interactive_elements || payload.elements || [];
+          const informationChunks = payload.information_chunks || [];
 
-            // Merge scores back into elements
-            const mergedElements = payload.elements.map((el: { text: string; description: string; relevanceScore?: number }) => {
-              const scoredEl = scored.find(s => s.text === el.text && s.description === el.description);
-              return {
-                ...el,
-                relevanceScore: scoredEl?.relevanceScore ?? el.relevanceScore ?? 0
-              };
-            });
+          if (intent) {
+            const itemsToScore: Array<{ text: string; description: string; element: any; }> = [];
+            const chunksToScore: Array<{ text: string; description: string; element: any; }> = [];
+
+            for (const el of interactiveElements) {
+              itemsToScore.push({ text: el.text || '', description: el.description || '', element: el });
+            }
+            for (const chunk of informationChunks) {
+              const chunkText = (chunk as { text?: string }).text || '';
+              const chunkDesc = (chunk as { description?: string; context?: string[] }).description
+                || ((chunk as { context?: string[] }).context || []).join(' > ')
+                || '';
+              if (chunkText.length > 3) {
+                chunksToScore.push({ text: chunkText, description: chunkDesc, element: chunk });
+              }
+            }
+
+            let scoredElements = undefined;
+            if (itemsToScore.length > 0) {
+              const scored = await scoreElements(intent, itemsToScore);
+
+              console.log(scored);
+
+              scoredElements = scored.map((el: { text: string; description: string; relevanceScore?: number; element: any }) => {
+                return {element: el.element, relevanceScore: el.relevanceScore};
+              }).filter(c => (c.relevanceScore as number) > 0.35);;
+            }
+
+            let scoredChunks = undefined;
+            if (chunksToScore.length > 0) {
+              const scored = await scoreElements(intent, chunksToScore);
+              scoredChunks = scored.map((chunk) => {
+                return {element: chunk.element, relevanceScore: chunk.relevanceScore};
+              }).filter(c => (c.relevanceScore as number) > 0.35);
+            }
 
             resolve({
               ...payload,
-              elements: mergedElements,
+              interactive_elements: scoredElements ? (scoredElements.length > 0 ? scoredElements : interactiveElements.slice(0, 5)) : interactiveElements.slice(0, 5),
+              information_chunks: scoredChunks ? (scoredChunks.length > 0 ? scoredChunks : informationChunks.slice(0, 5)) : informationChunks.slice(0, 5),
               extractionMethod: 'tfidf',
               success: true
             });
-          } else {
-            resolve({ ...payload, extractionMethod: payload.extractionMethod || 'tfidf', success: true });
+            return;
           }
+
+          resolve({
+            ...payload,
+            interactive_elements: interactiveElements,
+            information_chunks: informationChunks,
+            extractionMethod: payload.extractionMethod || 'tfidf',
+            success: true
+          });
         } else {
           failResult('No extraction payload received');
         }
