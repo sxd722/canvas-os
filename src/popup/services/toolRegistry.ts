@@ -405,9 +405,22 @@ export class ToolRegistry {
       const url = call.arguments.url as string;
       const title = (call.arguments.title as string) || (() => { try { return new URL(url).hostname; } catch { return url; } })();
       const intent = call.arguments.intent as string;
-      const canvasNodeId = call.arguments.canvasNodeId as string | undefined;
+      let canvasNodeId = call.arguments.canvas_node_id as string | undefined;
 
-      console.log(`[DAG] browse_webview called | url=${url} | intent=${intent} | title=${title} | canvasNodeId=${canvasNodeId || '(none)'}`);
+      if (!canvasNodeId) {
+        canvasNodeId = 'webview-' + Date.now();
+        this.addCanvasNode?.({
+          id: canvasNodeId,
+          type: 'web-view',
+          content: { url, title, status: 'loading' },
+          position: { x: 200, y: 200 },
+          size: { width: 400, height: 300 },
+          createdAt: Date.now()
+        });
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      console.log(`[DAG] browse_webview called | url=${url} | intent=${intent} | title=${title} | canvasNodeId=${canvasNodeId}`);
 
       if (!this.webviewSessions) {
         return { success: false, error: 'Webview session manager not configured' };
@@ -1228,7 +1241,11 @@ export class ToolRegistry {
         });
       };
 
-      const timeoutId = setTimeout(() => failResult('Extraction timed out'), timeoutMs);
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        clearInterval(pingInterval);
+        failResult('Extraction timed out');
+      }, timeoutMs);
 
       const handler = async (event: MessageEvent) => {
         const data = event.data;
@@ -1238,6 +1255,7 @@ export class ToolRegistry {
           if (settled) return;
           settled = true;
           clearTimeout(timeoutId);
+          clearInterval(pingInterval);
           window.removeEventListener('message', handler);
 
           // Handle both message formats (direct content script and bridge)
@@ -1276,44 +1294,16 @@ export class ToolRegistry {
 
       window.addEventListener('message', handler);
 
-      // Find iframe by node-id (primary) or session-id (fallback) — retry every 100ms for up to 2 seconds
-      let retries = 0;
-      const maxRetries = 20;
-      const tryFindAndSend = () => {
-        if (settled) return;
-        let container: Element | null = null;
-        let lookupMethod = 'none';
-
-        if (canvasNodeId) {
-          container = document.querySelector(`[data-node-id="${canvasNodeId}"]`);
-          lookupMethod = 'nodeId';
+      const pingInterval = setInterval(() => {
+        if (settled) { clearInterval(pingInterval); return; }
+        const containerId = canvasNodeId || sessionId;
+        const container = document.querySelector(`[data-node-id="${containerId}"]`);
+        const iframe = container?.querySelector('iframe') as HTMLIFrameElement | null;
+        if (iframe?.contentWindow) {
+          console.log(`[ToolRegistry] waitForExtraction | ping sent | containerId=${containerId}`);
+          iframe.contentWindow.postMessage({ type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, '*');
         }
-
-        if (!container) {
-          container = document.querySelector(`[data-session-id="${sessionId}"]`);
-          if (container) {
-            lookupMethod = 'sessionId';
-          }
-        }
-
-        if (container) {
-          const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
-          if (iframe?.contentWindow) {
-            console.log(`[ToolRegistry] waitForExtraction | found iframe | lookup=${lookupMethod} | sessionId=${sessionId} | nodeId=${canvasNodeId || '(none)'} | retries=${retries}`);
-            iframe.contentWindow.postMessage({ type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, '*');
-            return;
-          }
-        }
-        if (retries < maxRetries) {
-          retries++;
-          console.log(`[ToolRegistry] waitForExtraction | iframe not found, retrying | sessionId=${sessionId} | nodeId=${canvasNodeId || '(none)'} | retry=${retries}/${maxRetries}`);
-          setTimeout(tryFindAndSend, 100);
-        } else {
-          console.warn(`[ToolRegistry] waitForExtraction | iframe not found after ${maxRetries} retries | sessionId=${sessionId} | nodeId=${canvasNodeId || '(none)'}`);
-          this.postToIframe(sessionId, { type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, canvasNodeId);
-        }
-      };
-      tryFindAndSend();
+      }, 500);
     });
   }
 

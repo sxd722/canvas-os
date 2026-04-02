@@ -29,8 +29,21 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
   onInteractionResult}: EmbeddedWebViewProps, ref) {
   const [status, setStatus] = useState<WebViewStatus>('loading');
   const [retryCount, setRetryCount] = useState(0);
+  const [scale, setScale] = useState(1);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(entries => {
+      if (entries[0]) {
+        setScale(entries[0].contentRect.width / 1280);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const updateStatus = useCallback((newStatus: WebViewStatus) => {
     setStatus(newStatus);
@@ -174,7 +187,7 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
         </span>
       </div>
 
-      <div className="flex-1 relative min-h-0 bg-gray-900 rounded overflow-hidden">
+      <div className="flex-1 relative min-h-0 bg-gray-900 rounded overflow-y-auto overflow-x-hidden" ref={containerRef}>
         {status === 'loading' && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
             <div className="text-center">
@@ -241,16 +254,18 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
           </div>
         )}
 
-        <iframe
-          ref={iframeRef}
-          key={retryCount}
-          src={url}
-          onLoad={handleLoad}
-          onError={handleError}
-          className="w-full h-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          title={title || url}
-        />
+        <div style={{ height: `${4000 * scale}px`, width: '100%' }}>
+          <iframe
+            ref={iframeRef}
+            key={retryCount}
+            src={url}
+            onLoad={handleLoad}
+            onError={handleError}
+            style={{ width: '1280px', height: '4000px', transform: `scale(${scale})`, transformOrigin: 'top left', border: 'none' }}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            title={title || url}
+          />
+        </div>
       </div>
     </div>
   );

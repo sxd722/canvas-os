@@ -164,12 +164,12 @@ export default function App() {
       let result: Awaited<ReturnType<typeof toolRegistry.executeTool>>;
 
       if (toolCall.name === 'browse_webview') {
-        // Fix: create canvas node first so iframe exists, then wait for render before executing tool
         const url = toolCall.arguments.url as string;
         const title = (toolCall.arguments.title as string) || new URL(url).hostname;
+        const nodeId = generateId();
 
         const webViewNode: CanvasNode = {
-          id: generateId(),
+          id: nodeId,
           type: 'web-view',
           content: {
             url,
@@ -193,13 +193,10 @@ export default function App() {
         };
         setMessages(prev => [...prev, browseMsg]);
 
-        // Wait for React to render the iframe into the DOM
         await new Promise(r => setTimeout(r, 100));
 
-        // Inject canvas node ID into tool arguments so the iframe targeting system can locate it
-        toolCall.arguments.canvasNodeId = webViewNode.id;
+        toolCall.arguments.canvas_node_id = nodeId;
 
-        // Now execute the tool (which sends postMessage to the iframe)
         result = await toolRegistry.executeTool(toolCall);
       } else {
         result = await toolRegistry.executeTool(toolCall);
