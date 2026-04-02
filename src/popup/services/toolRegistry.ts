@@ -1,24 +1,12 @@
 import { Tool, ToolCall, ToolResponse, LLMConfig, WebviewSession, PageExtraction, NavigationEntry } from '../../shared/types';
 import type { DAGNode, BrowseDAGNodeParams } from '../../shared/dagSchema';
-import { scoreElements } from './semanticExtractor';
-import { createLLMProvider } from '../../shared/llm-provider';
+import { toolDefinitions } from '../../shared/toolDefinitions';
+import { postToIframe, waitForExtraction, sendInteractionToIframe, waitForNavigationBack, sendExtractBySelector } from './webviewHelpers';
+import { DAGEngine } from './dagEngine';
 
-export type DAGExecutionCallback = (planId: string, nodes: DAGNode[], status: 'running' | 'completed' | 'failed') => void;
-
-const dagExecutionCallbacks: Set<DAGExecutionCallback> = new Set();
-
-function notifyDAGExecution(planId: string, nodes: DAGNode[], status: 'running' | 'completed' | 'failed'): void {
-  const nodeStatuses = nodes.map(n => `${n.id}:${n.status}`).join(', ');
-  console.log(`[DAG] notifyDAGExecution | planId=${planId} | status=${status} | nodes=[${nodeStatuses}]`);
-  dagExecutionCallbacks.forEach(cb => cb(planId, nodes, status));
-}
-
-export function registerDAGExecutionCallback(callback: DAGExecutionCallback): () => void {
-  dagExecutionCallbacks.add(callback);
-  return () => {
-    dagExecutionCallbacks.delete(callback);
-  };
-}
+export { toolDefinitions } from '../../shared/toolDefinitions';
+export { registerDAGExecutionCallback } from './dagEngine';
+export type { DAGExecutionCallback } from './dagEngine';
 
 export type ArtifactMetadata = {
   id: string;
@@ -30,165 +18,6 @@ export type ArtifactMetadata = {
 }
 
 export type ArtifactContentGetter = (id: string) => { content: unknown; type: string; size: number } | null;
-
-export const toolDefinitions: Tool[] = [
-  {
-    name: 'list_artifacts',
-    description: 'List all artifacts on the canvas with their IDs, titles, types, and summaries. Use this first to discover available artifacts before using read_artifact_content.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: []
-    }
-  },
-  {
-    name: 'read_artifact_content',
-    description: 'Fetch the full content of a canvas artifact. Use this when you need to analyze or reference the complete content of a file, image OCR text, or other artifact.',
-    parameters: {
-      type: 'object',
-      properties: {
-        artifactId: {
-          type: 'string',
-          description: 'The ID of the artifact to fetch'
-        }
-      },
-      required: ['artifactId']
-    }
-  },
-  {
-    name: 'open_web_view',
-    description: 'Open a web URL as an embedded interactive view in the canvas. Useful for research, documentation reference, or displaying web content.',
-    parameters: {
-      type: 'object',
-      properties: {
-        url: {
-          type: 'string',
-          description: 'The URL to open',
-          format: 'uri'
-        },
-        title: {
-          type: 'string',
-          description: 'Optional custom title for the view'
-        }
-      },
-      required: ['url']
-    }
-  },
-  {
-    name: 'read_webpage_content',
-    description: 'Fetch and extract content from a webpage URL. Use this to retrieve product information, summarize articles, or extract specific data points like prices, emails, and dates.',
-    parameters: {
-      type: 'object',
-      properties: {
-        url: {
-          type: 'string',
-          description: 'The URL to fetch content from',
-          format: 'uri'
-        },
-        mode: {
-          type: 'string',
-          enum: ['full', 'readability', 'data-points'],
-          description: 'Extraction mode: "full" for all text, "readability" for article extraction, "data-points" for structured data (prices, emails, dates)'
-        },
-        timeout: {
-          type: 'number',
-          description: 'Timeout in milliseconds (default: 30000)'
-        }
-      },
-      required: ['url']
-    }
-  },
-  {
-    name: 'browse_webview',
-    description: 'Open a URL in an embedded webview and extract relevant interactive elements based on a browsing intent',
-    parameters: {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: 'URL to open in the webview' },
-        title: { type: 'string', description: 'Label for the webview node' },
-        intent: { type: 'string', description: 'What you are looking for on this page' },
-        canvasNodeId: { type: 'string', description: 'Canvas node ID of the web-view node, used to locate the iframe in the DOM' }
-      },
-      required: ['url', 'intent']
-    }
-  },
-  {
-    name: 'interact_webview',
-    description: 'Interact with an element in an existing webview (click, fill input, select option)',
-    parameters: {
-      type: 'object',
-      properties: {
-        session_id: { type: 'string', description: 'Webview session ID' },
-        element_selector: { type: 'string', description: 'CSS selector of the element' },
-        action: { type: 'string', enum: ['click', 'fill', 'select'], description: 'Action to perform' },
-        value: { type: 'string', description: 'Value for fill/select actions' }
-      },
-      required: ['session_id', 'element_selector', 'action']
-    }
-  },
-    {
-    name: 'navigate_webview_back',
-    description: 'Navigate back to the previous page in a webview session',
-    parameters: {
-      type: 'object',
-      properties: {
-        session_id: { type: 'string', description: 'Webview session ID' }
-      },
-      required: ['session_id']
-    }
-  },
-    {
-    name: 'extract_webview_content',
-    description: 'Extract specific content from a webview page using a CSS selector',
-    parameters: {
-      type: 'object',
-      properties: {
-        session_id: { type: 'string', description: 'Webview session ID' },
-        selector: { type: 'string', description: 'CSS selector for targeted extraction' },
-        target: { type: 'string', description: 'Description of what data to extract' }
-      },
-      required: ['session_id', 'selector', 'target']
-    }
-  },
-  {
-    name: 'execute_dag',
-    description: 'Execute a plan of interdependent tasks as a Directed Acyclic Graph (DAG). Independent tasks run concurrently. Node types: llm-call, js-execution, web-operation, webview-browse/interact/extract, scrape (browser tab with DOM extraction), llm_calc (LLM aggregation of predecessor results). Use this for complex multi-step workflows like price comparison, research + code generation + summarization.',
-    parameters: {
-      type: 'object',
-      properties: {
-        nodes: {
-          type: 'array',
-          description: 'Array of DAG nodes to execute',
-          items: {
-            type: 'object',
-            required: ['id', 'type', 'params', 'dependencies'],
-            properties: {
-              id: {
-                type: 'string',
-                description: 'Unique identifier for this node'
-              },
-              type: {
-                type: 'string',
-                enum: ['llm-call', 'js-execution', 'web-operation', 'webview-browse', 'webview-interact', 'webview-extract', 'scrape', 'llm_calc'],
-                description: 'Type of execution for this node'
-              },
-              params: {
-                type: 'object',
-                description: 'Parameters: llm-call={prompt}, js-execution={code,timeout}, web-operation={url,action}, webview-browse={url,intent,title}, webview-interact={session_id,element_selector,action,value}, webview-extract={session_id,selector,target}, scrape={url,selector?,waitMs?,timeout?}, llm_calc={prompt,model?}'
-              },
-              dependencies: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'IDs of nodes that must complete before this one'
-              }
-            }
-          }
-        }
-      },
-      required: ['nodes']
-    }
-  }
-];
 
 let currentLLMConfig: LLMConfig | undefined;
 
@@ -214,18 +43,21 @@ export interface WebviewSessionAccessor {
 
 export class ToolRegistry {
   private handlers: Map<string, (call: ToolCall) => Promise<ToolResponse>> = new Map();
-  private workers: Map<string, Worker> = new Map();
-  private nodeResults: Map<string, Map<string, unknown>> = new Map();
   private artifactMetadataGetter: ArtifactMetadataGetter | null = null;
   private artifactContentGetter: ArtifactContentGetter | null = null;
   private webviewSessions: WebviewSessionAccessor | null = null;
-  private activeWebviewDAGPlanId: string | null = null;
-  private activeWebviewDAGNodes: DAGNode[] = [];
+  private dagEngine: DAGEngine;
   public addCanvasNode: ((node: any) => void) | null = null;
   public updateCanvasNode: ((nodeId: string, updates: Record<string, unknown>) => void) | null = null;
 
   constructor() {
     this.registerDefaultHandlers();
+    this.dagEngine = new DAGEngine({
+      executeTool: (call) => this.executeTool(call),
+      addCanvasNode: this.addCanvasNode,
+      updateCanvasNode: this.updateCanvasNode,
+      getLLMConfig: () => currentLLMConfig
+    });
   }
 
   setArtifactMetadataGetter(getter: ArtifactMetadataGetter): void {
@@ -362,15 +194,11 @@ export class ToolRegistry {
 
       console.log(`[DAG] execute_dag called | planId=${planId} | nodeCount=${nodes.length} | nodes=${nodes.map(n => `${n.id}(${n.type})`).join(', ')}`);
 
-      notifyDAGExecution(planId, nodes.map(n => ({ ...n, status: 'pending' })), 'running');
-
-      // Await DAG completion so we return actual results
       console.log(`[DAG] execute_dag | planId=${planId} | starting executeDAGWithWorkers...`);
-      await this.executeDAGWithWorkers(planId, nodes);
+      await this.dagEngine.executeDAGWithWorkers(planId, nodes);
       console.log(`[DAG] execute_dag | planId=${planId} | executeDAGWithWorkers completed`);
 
-      // Collect results from nodeResults map
-      const resultMap = this.nodeResults.get(planId);
+      const resultMap = this.dagEngine.getNodeResults(planId);
       const resultsSummary = nodes.map(n => {
         const nodeResult = resultMap?.get(n.id);
         const isError = nodeResult && typeof nodeResult === 'object' && 'error' in (nodeResult as Record<string, unknown>);
@@ -439,65 +267,40 @@ export class ToolRegistry {
       console.log(`[DAG] browse_webview session created | sessionId=${session.id} | nonce=${session.channelNonce} | canvasNodeId=${canvasNodeId || '(none)'}`);
 
       // T018: Generate webview browsing DAG plan
-      this.activeWebviewDAGPlanId = `webview-plan-${Date.now()}`;
-      this.activeWebviewDAGNodes = [
-        {
-          id: `webview-browse-${Date.now()}`,
-          type: 'webview-browse',
-          params: { type: 'webview-browse', url, intent, title } as BrowseDAGNodeParams,
-          dependencies: [],
-          status: 'running',
-          startedAt: Date.now()
-        },
-        {
-          id: `webview-interact-${Date.now()}`,
-          type: 'webview-interact',
-          params: { type: 'webview-interact', sessionId: session.id } as BrowseDAGNodeParams,
-          dependencies: [`webview-browse-${Date.now()}`],
-          status: 'pending'
-        },
-        {
-          id: `webview-extract-${Date.now()}`,
-          type: 'webview-extract',
-          params: { type: 'webview-extract', sessionId: session.id } as BrowseDAGNodeParams,
-          dependencies: [`webview-interact-${Date.now()}`],
-          status: 'pending'
-        }
-      ];
-      // Fix: use same IDs for dependencies (capture before spreading)
       const browseNodeId = `wv-browse-${session.id}`;
       const interactNodeId = `wv-interact-${session.id}`;
       const extractNodeId = `wv-extract-${session.id}`;
-      this.activeWebviewDAGNodes = [
-        {
-          id: browseNodeId,
-          type: 'webview-browse',
-          params: { type: 'webview-browse', url, intent, title } as BrowseDAGNodeParams,
-          dependencies: [],
-          status: 'running',
-          startedAt: Date.now()
-        },
-        {
-          id: interactNodeId,
-          type: 'webview-interact',
-          params: { type: 'webview-interact', sessionId: session.id } as BrowseDAGNodeParams,
-          dependencies: [browseNodeId],
-          status: 'pending'
-        },
-        {
-          id: extractNodeId,
-          type: 'webview-extract',
-          params: { type: 'webview-extract', sessionId: session.id } as BrowseDAGNodeParams,
-          dependencies: [interactNodeId],
-          status: 'pending'
-        }
-      ];
-      notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, 'running');
-      console.log(`[DAG] browse_webview DAG plan created | planId=${this.activeWebviewDAGPlanId} | nodes=${this.activeWebviewDAGNodes.map(n => `${n.id}(${n.type})`).join(', ')}`);
+      this.dagEngine.setActiveWebviewDAG(
+        `webview-plan-${Date.now()}`,
+        [
+          {
+            id: browseNodeId,
+            type: 'webview-browse',
+            params: { type: 'webview-browse', url, intent, title } as BrowseDAGNodeParams,
+            dependencies: [],
+            status: 'running',
+            startedAt: Date.now()
+          },
+          {
+            id: interactNodeId,
+            type: 'webview-interact',
+            params: { type: 'webview-interact', sessionId: session.id } as BrowseDAGNodeParams,
+            dependencies: [browseNodeId],
+            status: 'pending'
+          },
+          {
+            id: extractNodeId,
+            type: 'webview-extract',
+            params: { type: 'webview-extract', sessionId: session.id } as BrowseDAGNodeParams,
+            dependencies: [interactNodeId],
+            status: 'pending'
+          }
+        ]
+      );
 
       // Wait for page to load via postMessage from iframe (up to 10s)
       console.log(`[DAG] browse_webview | waiting for extraction | sessionId=${session.id} | timeout=10000ms`);
-      const extraction = await this.waitForExtraction(session.channelNonce, session.id, intent, 10000, url, canvasNodeId);
+      const extraction = await waitForExtraction(session.channelNonce, session.id, intent, 10000, url, canvasNodeId);
       console.log(`[DAG] browse_webview | extraction result | sessionId=${session.id} | success=${extraction.success} | elements=${extraction.elements?.length || 0} | error=${extraction.error || 'none'}`);
 
       this.webviewSessions.updateSession(session.id, {
@@ -507,26 +310,11 @@ export class ToolRegistry {
       });
 
       // T019: Update browse DAG node status
-      if (this.activeWebviewDAGPlanId && this.activeWebviewDAGNodes.length > 0) {
-        const browseNodeIdx = this.activeWebviewDAGNodes.findIndex(n => n.type === 'webview-browse');
-        if (browseNodeIdx >= 0) {
-          this.activeWebviewDAGNodes[browseNodeIdx] = {
-            ...this.activeWebviewDAGNodes[browseNodeIdx],
-            status: extraction.success ? 'success' : 'error',
-            completedAt: Date.now(),
-            error: extraction.error
-          };
-          // If browse failed, mark dependents as skipped
-          if (!extraction.success) {
-            const browseNodeId = this.activeWebviewDAGNodes[browseNodeIdx].id;
-            this.activeWebviewDAGNodes = this.activeWebviewDAGNodes.map(n =>
-              n.dependencies.includes(browseNodeId) ? { ...n, status: 'skipped' as const } : n
-            );
-            notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, 'failed');
-          } else {
-            notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, 'running');
-          }
-        }
+      if (!extraction.success) {
+        this.dagEngine.updateWebviewDAGNode('webview-browse', 'error', extraction.error);
+        this.dagEngine.skipWebviewDAGDependents('webview-browse');
+      } else {
+        this.dagEngine.updateWebviewDAGNode('webview-browse', 'success');
       }
 
       return {
@@ -576,7 +364,7 @@ export class ToolRegistry {
 
       // Send interaction command to iframe and wait for result
       console.log(`[DAG] interact_webview | sending INTERACT_ELEMENT | sessionId=${sessionId} | selector=${elementSelector} | action=${action}`);
-      const interactionResult = await this.sendInteractionToIframe(
+      const interactionResult = await sendInteractionToIframe(
         sessionId, session.channelNonce, elementSelector, action, value, session.canvasNodeId
       );
       console.log(`[DAG] interact_webview | interaction result | sessionId=${sessionId} | success=${interactionResult.success} | navigated=${interactionResult.navigated} | error=${interactionResult.error || 'none'}`);
@@ -584,8 +372,8 @@ export class ToolRegistry {
       if (!interactionResult.success) {
         this.webviewSessions.updateSession(sessionId, { status: 'loaded' });
         // T019: Mark interact node as error, extract as skipped
-        this.updateWebviewDAGNode('webview-interact', 'error', interactionResult.error);
-        this.skipWebviewDAGDependents('webview-interact');
+        this.dagEngine.updateWebviewDAGNode('webview-interact', 'error', interactionResult.error);
+        this.dagEngine.skipWebviewDAGDependents('webview-interact');
         return { success: false, error: interactionResult.error || 'Interaction failed' };
       }
 
@@ -599,19 +387,19 @@ export class ToolRegistry {
           navigationType: 'interaction'
         });
 
-        extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 10000, interactionResult.newUrl || session.currentUrl, session.canvasNodeId);
+        extraction = await waitForExtraction(session.channelNonce, sessionId, session.intent, 10000, interactionResult.newUrl || session.currentUrl, session.canvasNodeId);
         this.webviewSessions.updateSession(sessionId, {
           currentUrl: interactionResult.newUrl || session.currentUrl,
           title: extraction.title || '',
           status: 'loaded'
         });
       } else {
-        extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 5000, session.currentUrl, session.canvasNodeId);
+        extraction = await waitForExtraction(session.channelNonce, sessionId, session.intent, 5000, session.currentUrl, session.canvasNodeId);
         this.webviewSessions.updateSession(sessionId, { status: 'loaded' });
       }
 
       // T019: Mark interact DAG node as success
-      this.updateWebviewDAGNode('webview-interact', 'success');
+      this.dagEngine.updateWebviewDAGNode('webview-interact', 'success');
 
       return {
         success: true,
@@ -642,13 +430,13 @@ export class ToolRegistry {
       }
 
       // Send NAVIGATE_BACK command to the specific iframe by node-id (primary) or session-id (fallback)
-      this.postToIframe(sessionId, {
+      postToIframe(sessionId, {
         type: 'NAVIGATE_BACK',
         nonce: session.channelNonce
       }, session.canvasNodeId);
 
       // Wait for navigation to complete
-      const navResult = await this.waitForNavigationBack(session.channelNonce, 10000);
+      const navResult = await waitForNavigationBack(session.channelNonce, 10000);
 
       if (!navResult.success) {
         return { success: false, error: navResult.error || 'Navigation back failed' };
@@ -659,7 +447,7 @@ export class ToolRegistry {
       const currentEntry = prevEntry; // The page we just went back to is the previous entry
 
       // Re-extract content from the page we went back to
-      const extraction = await this.waitForExtraction(session.channelNonce, sessionId, session.intent, 10000, navResult.url || session.currentUrl, session.canvasNodeId);
+      const extraction = await waitForExtraction(session.channelNonce, sessionId, session.intent, 10000, navResult.url || session.currentUrl, session.canvasNodeId);
 
       this.webviewSessions.updateSession(sessionId, {
         currentUrl: navResult.url || (currentEntry?.url || session.currentUrl),
@@ -707,13 +495,13 @@ export class ToolRegistry {
       }
 
       // Send EXTRACT_BY_SELECTOR to iframe via postMessage
-      const extractResult = await this.sendExtractBySelector(sessionId, session.channelNonce, selector, session.canvasNodeId);
+      const extractResult = await sendExtractBySelector(sessionId, session.channelNonce, selector, session.canvasNodeId);
       console.log(`[DAG] extract_webview_content | result | sessionId=${sessionId} | success=${extractResult.success} | matchCount=${extractResult.matchCount} | error=${extractResult.error || 'none'}`);
 
       // T019: Update extract DAG node status
-      this.updateWebviewDAGNode('webview-extract', extractResult.success ? 'success' : 'error', extractResult.error);
+      this.dagEngine.updateWebviewDAGNode('webview-extract', extractResult.success ? 'success' : 'error', extractResult.error);
       if (!extractResult.success) {
-        this.skipWebviewDAGDependents('webview-extract');
+        this.dagEngine.skipWebviewDAGDependents('webview-extract');
       }
 
       return {
@@ -725,356 +513,6 @@ export class ToolRegistry {
         error: extractResult.error
       };
     });
-  }
-
-  private async executeDAGWithWorkers(planId: string, nodes: DAGNode[]): Promise<void> {
-    console.log(`[DAG] executeDAGWithWorkers | planId=${planId} | totalNodes=${nodes.length}`);
-    const nodeStatus = new Map<string, 'pending' | 'running' | 'success' | 'error'>();
-    const nodeResults = new Map<string, unknown>();
-    this.nodeResults.set(planId, nodeResults);
-
-    const sortedNodes = this.topologicalSort(nodes);
-    console.log(`[DAG] topologicalSort | planId=${planId} | order=${sortedNodes.map(n => n.id).join(' → ')}`);
-
-    for (const node of sortedNodes) {
-      nodeStatus.set(node.id, 'pending');
-    }
-
-    const maxConcurrent = 4;
-    const levels: DAGNode[][] = [];
-    const processed = new Set<string>();
-
-    while (processed.size < sortedNodes.length) {
-      const level: DAGNode[] = [];
-
-      for (const node of sortedNodes) {
-        if (processed.has(node.id)) continue;
-
-        const allDepsProcessed = node.dependencies.every(depId => processed.has(depId));
-
-        if (allDepsProcessed) {
-          level.push(node);
-        }
-      }
-
-      if (level.length === 0) break
-
-      levels.push(level.slice(0, maxConcurrent))
-      level.forEach(n => processed.add(n.id))
-    }
-
-    console.log(`[DAG] level planning | planId=${planId} | levels=${levels.length} | perLevel=${levels.map(l => `[${l.map(n => `${n.id}(${n.type})`).join(',')}]`).join(' → ')}`);
-
-    for (let levelIdx = 0; levelIdx < levels.length; levelIdx++) {
-      const level = levels[levelIdx];
-      console.log(`[DAG] executing level ${levelIdx + 1}/${levels.length} | planId=${planId} | nodes=[${level.map(n => `${n.id}(${n.type})`).join(', ')}]`);
-
-      await Promise.all(
-        level.map(async (node) => {
-          console.log(`[DAG] node starting | planId=${planId} | nodeId=${node.id} | type=${node.type} | deps=[${node.dependencies.join(',')}]`);
-          nodeStatus.set(node.id, 'running')
-
-          try {
-            const depResults: Record<string, unknown> = {}
-            for (const depId of node.dependencies) {
-              const result = nodeResults.get(depId)
-              if (result !== undefined) {
-                depResults[depId] = result
-              }
-            }
-
-            const result = await this.executeNodeWithWorker(node, depResults)
-            nodeResults.set(node.id, result)
-            nodeStatus.set(node.id, 'success')
-            this.nodeResults.get(planId)?.set(node.id, result)
-            console.log(`[DAG] node success | planId=${planId} | nodeId=${node.id} | type=${node.type} | resultType=${typeof result}`);
-          } catch (error) {
-            nodeStatus.set(node.id, 'error')
-            const errMsg = error instanceof Error ? error.message : 'Unknown error';
-            this.nodeResults.get(planId)?.set(node.id, { error: errMsg })
-            console.error(`[DAG] node failed | planId=${planId} | nodeId=${node.id} | type=${node.type} | error=${errMsg}`);
-          }
-        })
-      )
-
-      console.log(`[DAG] level ${levelIdx + 1}/${levels.length} completed | planId=${planId}`);
-    }
-
-    const hasErrors = Array.from(nodeStatus.values()).some(s => s === 'error');
-    const finalStatuses = Array.from(nodeStatus.entries()).map(([id, s]) => `${id}:${s}`).join(', ');
-    console.log(`[DAG] all levels completed | planId=${planId} | hasErrors=${hasErrors} | finalStatuses=[${finalStatuses}]`);
-    notifyDAGExecution(
-      planId,
-      nodes.map(n => ({
-        ...n,
-        status: nodeStatus.get(n.id) || 'pending',
-        result: nodeResults.get(n.id)
-      })),
-      hasErrors ? 'failed' : 'completed'
-    );
-
-    this.workers.forEach((worker, id) => {
-      worker.terminate()
-      this.workers.delete(id)
-    })
-  }
-
-  private async executeNodeWithWorker(node: DAGNode, depResults: Record<string, unknown>): Promise<unknown> {
-    console.log(`[DAG] executeNodeWithWorker | nodeId=${node.id} | type=${node.type} | depKeys=${Object.keys(depResults).join(',')}`);
-
-    if (node.type === 'web-operation') {
-      console.log(`[DAG] node web-operation | nodeId=${node.id} | dispatching to executeWebOpViaBackground`);
-      return this.executeWebOpViaBackground(node, depResults)
-    }
-
-    if (node.type === 'js-execution') {
-      const params = node.params as { code: string; timeout?: number }
-      const codeWithDeps = this.interpolateCodeWithDeps(params.code, depResults)
-      console.log(`[DAG] node js-execution | nodeId=${node.id} | timeout=${params.timeout || 5000}`);
-      return this.executeInSandbox(codeWithDeps, params.timeout || 5000)
-    }
-
-    if (node.type === 'llm-call') {
-      console.log(`[DAG] node llm-call | nodeId=${node.id} | spawning Web Worker`);
-      return new Promise((resolve, reject) => {
-        const workerScript = new URL('../workers/llmCallWorker.ts', import.meta.url).href
-        const workerId = `${node.id}-${Date.now()}`
-        const worker = new Worker(workerScript, { type: 'module' })
-        this.workers.set(workerId, worker)
-
-        worker.onmessage = (event) => {
-          const response = event.data
-          console.log(`[DAG] llm-call worker response | nodeId=${node.id} | success=${response.success}`);
-          if (response.success) {
-            resolve(response.result)
-          } else {
-            reject(new Error(response.error || 'Worker execution failed'))
-          }
-          worker.terminate()
-          this.workers.delete(workerId)
-        }
-
-        worker.onerror = (error) => {
-          console.error(`[DAG] llm-call worker error | nodeId=${node.id} | error=${error.message}`);
-          reject(new Error(error.message || 'Worker error'))
-          worker.terminate()
-          this.workers.delete(workerId)
-        }
-
-        const message: Record<string, unknown> = {
-          type: 'execute',
-          nodeId: node.id,
-          params: node.params,
-          config: currentLLMConfig
-        }
-
-        worker.postMessage(message)
-      })
-    }
-
-    // Webview DAG node types (T009)
-    if (node.type === 'webview-browse' || node.type === 'webview-interact' || node.type === 'webview-extract') {
-      console.log(`[DAG] node webview | nodeId=${node.id} | type=${node.type} | dispatching to executeWebviewDAGNode`);
-      return this.executeWebviewDAGNode(node);
-    }
-
-    // Scrape node type — spawn canvas webview node then execute browse_webview
-    if (node.type === 'scrape') {
-      const params = node.params as { url: string; selector?: string; waitMs?: number; timeout?: number };
-      console.log(`[DAG] node scrape | nodeId=${node.id} | url=${params.url} | intent=extract page data for comparison | title=Scrape: ${params.url}`);
-
-      // Spawn a visible canvas node for the webview
-      const canvasNodeId = `dag-node-${node.id}`;
-      if (this.addCanvasNode) {
-        this.addCanvasNode({
-          id: canvasNodeId,
-          type: 'web-view',
-          content: { url: params.url, title: 'Scrape: ' + params.url, status: 'loading' },
-          position: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
-          size: { width: 600, height: 400 },
-          createdAt: Date.now(),
-          source: 'dag-scrape'
-        });
-        console.log(`[DAG] node scrape | spawned canvas node | canvasNodeId=${canvasNodeId} | url=${params.url}`);
-      } else {
-        console.warn(`[DAG] node scrape | addCanvasNode not wired, skipping canvas node spawn`);
-      }
-
-      // Give React time to render the iframe before executing browse_webview
-      await new Promise(r => setTimeout(r, 100));
-
-      const result = await this.executeTool({
-        name: 'browse_webview',
-        arguments: {
-          url: params.url,
-          intent: 'extract page data for comparison',
-          title: 'Scrape: ' + params.url,
-          canvasNodeId
-        }
-      });
-      const r = result as unknown as Record<string, unknown>;
-      if (result.success) {
-        console.log(`[DAG] node scrape success | nodeId=${node.id} | contentLength=${r.content ? String(r.content).length : 0} | sessionId=${r.session_id || '(none)'}`);
-        const browseSessionId = r.session_id as string | undefined;
-        if (browseSessionId && this.updateCanvasNode) {
-          this.updateCanvasNode(canvasNodeId, { content: { sessionId: browseSessionId } });
-          console.log(`[DAG] node scrape | wrote sessionId to canvas node | canvasNodeId=${canvasNodeId} | sessionId=${browseSessionId}`);
-        }
-      } else {
-        console.error(`[DAG] node scrape failed | nodeId=${node.id} | error=${result.error || 'browse_webview failed'}`);
-      }
-      return result;
-    }
-
-    // LLM Calc node type — interpolate deps into prompt and call LLM provider
-    if (node.type === 'llm_calc') {
-      const params = node.params as { prompt: string; model?: string };
-      if (!currentLLMConfig) {
-        console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=LLM configuration is required`);
-        throw new Error('LLM configuration is required for llm_calc nodes');
-      }
-      // Check if any dependency failed before proceeding
-      const failedDep = Object.entries(depResults).find(([, val]) => {
-        if (val && typeof val === 'object' && 'error' in val) return true;
-        if (val && typeof val === 'object' && 'success' in val && (val as any).success === false) return true;
-        return false;
-      });
-      if (failedDep) {
-        const errMsg = `Dependency ${failedDep[0]} failed: ${JSON.stringify(failedDep[1])}`;
-        console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=${errMsg}`);
-        throw new Error(errMsg);
-      }
-      const interpolatedPrompt = this.interpolateCodeWithDeps(params.prompt, depResults);
-      console.log(`[DAG] node llm_calc | nodeId=${node.id} | model=${params.model || 'default'} | promptLength=${interpolatedPrompt.length}`);
-      const provider = createLLMProvider(currentLLMConfig);
-      const result = await provider.complete(
-        [{ role: 'user', content: interpolatedPrompt }],
-        { model: params.model }
-      );
-      if (!result.success) {
-        const errMsg = result.error || 'LLM call failed';
-        console.error(`[DAG] node llm_calc failed | nodeId=${node.id} | error=${errMsg}`);
-        throw new Error(errMsg);
-      }
-      console.log(`[DAG] node llm_calc success | nodeId=${node.id} | responseLength=${result.content?.length || 0} | model=${result.model}`);
-      return result.content;
-    }
-
-    console.error(`[DAG] unknown node type | nodeId=${node.id} | type=${node.type}`);
-    throw new Error(`Unknown node type: ${node.type as string}`)
-  }
-
-  private interpolateCodeWithDeps(code: string, deps: Record<string, unknown>): string {
-    let result = code
-    for (const [nodeId, depResult] of Object.entries(deps)) {
-      result = result.replace(new RegExp(`\\$${nodeId}`, 'g'), JSON.stringify(depResult))
-    }
-    return result
-  }
-
-  private async executeInSandbox(code: string, timeout: number = 5000): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const sandboxIframe = document.querySelector<HTMLIFrameElement>('#sandbox-iframe')
-      
-      if (!sandboxIframe?.contentWindow) {
-        reject(new Error('Sandbox iframe not available'))
-        return
-      }
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type !== 'SANDBOX_RESULT') return
-        
-        clearTimeout(timeoutId)
-        window.removeEventListener('message', handleMessage)
-        
-        if (event.data.success) {
-          resolve(event.data.result)
-        } else {
-          reject(new Error(event.data.error || 'Sandbox execution failed'))
-        }
-      }
-
-      window.addEventListener('message', handleMessage)
-
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', handleMessage)
-        reject(new Error('Execution timeout'))
-      }, timeout)
-
-      sandboxIframe.contentWindow.postMessage({
-        type: 'SANDBOX_EXECUTE',
-        code,
-        timeout
-      }, '*')
-    })
-  }
-
-  private async executeWebOpViaBackground(node: DAGNode, depResults: Record<string, unknown>): Promise<unknown> {
-    const params = node.params as { url: string; action: string; method?: string; headers?: Record<string, string>; body?: string }
-
-    let resolvedUrl = params.url
-    if (depResults && params.url.includes('$')) {
-      for (const [depId, depResult] of Object.entries(depResults)) {
-        const result = depResult as { data?: unknown }
-        if (result && result.data !== undefined) {
-          resolvedUrl = resolvedUrl.replace(
-            new RegExp(`\\$${depId}`, 'g'),
-            JSON.stringify(result.data)
-          )
-        }
-      }
-    }
-
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        {
-          type: 'DAG_FETCH',
-          url: resolvedUrl,
-          method: params.method || 'GET',
-          headers: params.headers,
-          body: params.body
-        },
-        (response) => {
-          if (response && response.success) {
-            resolve(response)
-          } else {
-            reject(new Error(response?.error || 'Fetch failed'))
-          }
-        }
-      )
-    })
-  }
-
-  private topologicalSort(nodes: DAGNode[]): DAGNode[] {
-    const sorted: DAGNode[] = []
-    const visited = new Set<string>()
-    const visiting = new Set<string>()
-
-    const visit = (node: DAGNode) => {
-      if (visited.has(node.id)) return
-      if (visiting.has(node.id)) {
-        throw new Error(`Circular dependency detected involving node ${node.id}`)
-      }
-
-      visiting.add(node.id)
-
-      for (const depId of node.dependencies) {
-        const depNode = nodes.find(n => n.id === depId)
-        if (depNode) {
-          visit(depNode)
-        }
-      }
-
-      visiting.delete(node.id)
-      visited.add(node.id)
-      sorted.push(node)
-    }
-
-    for (const node of nodes) {
-      visit(node)
-    }
-
-    return sorted
   }
 
   registerHandler(name: string, handler: (call: ToolCall) => Promise<ToolResponse>): void {
@@ -1102,324 +540,7 @@ export class ToolRegistry {
   }
 
   getNodeResults(planId: string): Map<string, unknown> | undefined {
-    return this.nodeResults.get(planId);
-  }
-
-  // --- Webview DAG Node Handler (T009) ---
-
-  private async executeWebviewDAGNode(node: DAGNode): Promise<unknown> {
-    const params = node.params as BrowseDAGNodeParams;
-    const toolCallMap: Record<string, string> = {
-      'webview-browse': 'browse_webview',
-      'webview-interact': 'interact_webview',
-      'webview-extract': 'extract_webview_content'
-    };
-    const toolName = toolCallMap[node.type];
-    if (!toolName) {
-      throw new Error(`Unknown webview DAG node type: ${node.type}`);
-    }
-
-    console.log(`[DAG] executeWebviewDAGNode | nodeId=${node.id} | type=${node.type} → tool=${toolName}`);
-
-    // Map DAG params to tool call arguments
-    const args: Record<string, unknown> = {};
-    if (node.type === 'webview-browse') {
-      args.url = params.url || '';
-      args.intent = params.intent || '';
-      args.title = params.title;
-    } else if (node.type === 'webview-interact') {
-      args.session_id = params.sessionId || '';
-      args.element_selector = params.elementSelector || '';
-      args.action = params.action || 'click';
-      args.value = params.value;
-    } else if (node.type === 'webview-extract') {
-      args.session_id = params.sessionId || '';
-      args.selector = params.extractSelector || '';
-      args.target = params.extractTarget || '';
-    }
-
-    const result = await this.executeTool({ name: toolName, arguments: args });
-    if (!result.success) {
-      throw new Error((result as { error?: string }).error || `${toolName} failed`);
-    }
-    return result;
-  }
-
-  // --- Webview DAG Helper Methods (T018/T019) ---
-
-  private updateWebviewDAGNode(type: string, status: 'success' | 'error', error?: string): void {
-    if (!this.activeWebviewDAGPlanId || this.activeWebviewDAGNodes.length === 0) return;
-    const idx = this.activeWebviewDAGNodes.findIndex(n => n.type === type);
-    if (idx >= 0) {
-      this.activeWebviewDAGNodes[idx] = {
-        ...this.activeWebviewDAGNodes[idx],
-        status,
-        completedAt: Date.now(),
-        ...(error ? { error } : {})
-      };
-      console.log(`[DAG] updateWebviewDAGNode | planId=${this.activeWebviewDAGPlanId} | type=${type} | status=${status} | error=${error || 'none'}`);
-      // If extract completes, mark plan as completed
-      if (type === 'webview-extract') {
-        notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, status === 'success' ? 'completed' : 'failed');
-      } else {
-        notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, 'running');
-      }
-    }
-  }
-
-  private skipWebviewDAGDependents(type: string): void {
-    if (!this.activeWebviewDAGPlanId || this.activeWebviewDAGNodes.length === 0) return;
-    const node = this.activeWebviewDAGNodes.find(n => n.type === type);
-    if (!node) return;
-    console.log(`[DAG] skipWebviewDAGDependents | planId=${this.activeWebviewDAGPlanId} | failedType=${type} | skipping deps of ${node.id}`);
-    this.activeWebviewDAGNodes = this.activeWebviewDAGNodes.map(n =>
-      n.dependencies.includes(node.id) ? { ...n, status: 'skipped' as const } : n
-    );
-    notifyDAGExecution(this.activeWebviewDAGPlanId, this.activeWebviewDAGNodes, 'failed');
-  }
-
-  // --- Webview postMessage Helpers ---
-
-  /**
-   * Find the iframe element for a given session and postMessage to its contentWindow.
-   * This avoids broadcasting to all iframes via window.postMessage.
-   */
-  private postToIframe(sessionId: string, message: Record<string, unknown>, canvasNodeId?: string): void {
-    let container: Element | null = null;
-    let lookupMethod = 'none';
-
-    if (canvasNodeId) {
-      container = document.querySelector(`[data-node-id="${canvasNodeId}"]`);
-      lookupMethod = 'nodeId';
-    }
-
-    if (!container) {
-      container = document.querySelector(`[data-session-id="${sessionId}"]`);
-      if (container) {
-        lookupMethod = 'sessionId';
-      }
-    }
-
-    if (!container) {
-      const allContainers = document.querySelectorAll('[data-node-id], [data-session-id]');
-      console.warn(`[toolRegistry] No container found for session ${sessionId}${canvasNodeId ? ` or nodeId ${canvasNodeId}` : ''}. Available containers:`, Array.from(allContainers).map(el => `nodeId=${el.getAttribute('data-node-id')}, sessionId=${el.getAttribute('data-session-id')}`).join(' | '));
-      return;
-    }
-
-    const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
-    if (!iframe?.contentWindow) {
-      console.warn(`[toolRegistry] Iframe or contentWindow not available | sessionId=${sessionId} | nodeId=${canvasNodeId || '(none)'} | lookup=${lookupMethod}`);
-      return;
-    }
-    console.log(`[toolRegistry] postToIframe | sessionId=${sessionId} | nodeId=${canvasNodeId || '(none)'} | lookup=${lookupMethod}`);
-    iframe.contentWindow.postMessage(message, '*');
-  }
-
-  /**
-   * Send EXTRACT_CONTENT to iframe by URL and wait for CONTENT_RESPONSE.
-   * Finds the iframe by src URL, retries every 100ms for up to 2s if not found,
-   * then sends postMessage directly to the matched iframe.
-   */
-  private waitForExtraction(nonce: string, sessionId: string, intent: string, timeoutMs: number, url: string, canvasNodeId?: string): Promise<PageExtraction> {
-    return new Promise((resolve) => {
-      let settled = false;
-
-      const failResult = (error: string) => {
-        if (settled) return;
-        settled = true;
-        window.removeEventListener('message', handler);
-        resolve({
-          url,
-          title: '',
-          summary: '',
-          elements: [],
-          extractionMethod: 'tfidf',
-          extractedAt: Date.now(),
-          totalElementsFound: 0,
-          success: false,
-          error
-        });
-      };
-
-      const timeoutId = setTimeout(() => {
-        if (settled) return;
-        clearInterval(pingInterval);
-        failResult('Extraction timed out');
-      }, timeoutMs);
-
-      const handler = async (event: MessageEvent) => {
-        const data = event.data;
-        if (data?.nonce !== nonce) return;
-
-        if (data?.type === 'CONTENT_RESPONSE' || (data?.source === 'webview-bridge' && data?.type === 'EXTRACTION_RESULT')) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          clearInterval(pingInterval);
-          window.removeEventListener('message', handler);
-
-          // Handle both message formats (direct content script and bridge)
-          const payload = data.extraction || data.payload;
-          if (payload) {
-            // Score elements with embedding model (fallback to TF-IDF) if intent provided
-            if (intent && payload.elements && payload.elements.length > 0) {
-              const scored = await scoreElements(intent, payload.elements.map((el: { text: string; description: string }) => ({
-                text: el.text || '',
-                description: el.description || ''
-              })));
-
-              // Merge scores back into elements
-              const mergedElements = payload.elements.map((el: { text: string; description: string; relevanceScore?: number }) => {
-                const scoredEl = scored.find(s => s.text === el.text && s.description === el.description);
-                return {
-                  ...el,
-                  relevanceScore: scoredEl?.relevanceScore ?? el.relevanceScore ?? 0
-                };
-              });
-
-              resolve({
-                ...payload,
-                elements: mergedElements,
-                extractionMethod: 'tfidf',
-                success: true
-              });
-            } else {
-              resolve({ ...payload, extractionMethod: payload.extractionMethod || 'tfidf', success: true });
-            }
-          } else {
-            failResult('No extraction payload received');
-          }
-        }
-      };
-
-      window.addEventListener('message', handler);
-
-      const pingInterval = setInterval(() => {
-        if (settled) { clearInterval(pingInterval); return; }
-        const containerId = canvasNodeId || sessionId;
-        const container = document.querySelector(`[data-node-id="${containerId}"]`);
-        const iframe = container?.querySelector('iframe') as HTMLIFrameElement | null;
-        if (iframe?.contentWindow) {
-          console.log(`[ToolRegistry] waitForExtraction | ping sent | containerId=${containerId}`);
-          iframe.contentWindow.postMessage({ type: 'EXTRACT_CONTENT', nonce, intent, sessionId }, '*');
-        }
-      }, 500);
-    });
-  }
-
-  /**
-   * Send INTERACT_ELEMENT to iframe and wait for INTERACTION_RESULT.
-   */
-  private sendInteractionToIframe(
-    sessionId: string,
-    nonce: string,
-    selector: string,
-    action: 'click' | 'fill' | 'select',
-    value?: string,
-    canvasNodeId?: string
-  ): Promise<{ success: boolean; newUrl?: string; navigated?: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', handler);
-        resolve({ success: false, error: 'Interaction timed out' });
-      }, 10000);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (data?.nonce !== nonce) return;
-
-        if (data?.type === 'INTERACTION_RESULT' || (data?.source === 'webview-bridge' && data?.type === 'INTERACTION_RESULT')) {
-          clearTimeout(timeoutId);
-          window.removeEventListener('message', handler);
-          const payload = data.payload || data;
-          resolve({
-            success: payload.success ?? false,
-            newUrl: payload.newUrl,
-            navigated: payload.navigated ?? false,
-            error: payload.error
-          });
-        }
-      };
-
-      window.addEventListener('message', handler);
-
-      // Send INTERACT_ELEMENT command to the specific iframe by node-id (primary) or session-id (fallback)
-      this.postToIframe(sessionId, {
-        type: 'INTERACT_ELEMENT',
-        nonce,
-        selector,
-        action,
-        value
-      }, canvasNodeId);
-    });
-  }
-
-  /**
-   * Wait for NAVIGATION_COMPLETE after sending NAVIGATE_BACK.
-   */
-  private waitForNavigationBack(nonce: string, timeoutMs: number): Promise<{ success: boolean; url?: string; title?: string; error?: string }> {
-    return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', handler);
-        resolve({ success: false, error: 'Navigation back timed out' });
-      }, timeoutMs);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (data?.nonce !== nonce) return;
-
-        if (data?.type === 'NAVIGATION_COMPLETE' || (data?.source === 'webview-bridge' && data?.type === 'NAVIGATION_COMPLETE')) {
-          clearTimeout(timeoutId);
-          window.removeEventListener('message', handler);
-          const payload = data.payload || data;
-          resolve({
-            success: true,
-            url: payload.url,
-            title: payload.title
-          });
-        }
-      };
-
-      window.addEventListener('message', handler);
-    });
-  }
-
-  /**
-   * Send EXTRACT_BY_SELECTOR to iframe and wait for EXTRACT_RESULT.
-   */
-  private sendExtractBySelector(sessionId: string, nonce: string, selector: string, canvasNodeId?: string): Promise<{ success: boolean; data?: string; matchCount?: number; error?: string }> {
-    return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', handler);
-        resolve({ success: false, error: 'Selector extraction timed out' });
-      }, 10000);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (data?.nonce !== nonce) return;
-
-        if (data?.type === 'EXTRACT_RESULT' || (data?.source === 'webview-bridge' && data?.type === 'EXTRACT_RESULT')) {
-          clearTimeout(timeoutId);
-          window.removeEventListener('message', handler);
-          const payload = data.payload || data;
-          resolve({
-            success: payload.success ?? true,
-            data: payload.data || '',
-            matchCount: payload.matchCount || (payload.data ? payload.data.split('\n').length : 0),
-            error: payload.error
-          });
-        }
-      };
-
-      window.addEventListener('message', handler);
-
-      // Send EXTRACT_BY_SELECTOR command to the specific iframe by node-id (primary) or session-id (fallback)
-      this.postToIframe(sessionId, {
-        type: 'EXTRACT_BY_SELECTOR',
-        nonce,
-        selector
-      }, canvasNodeId);
-    });
+    return this.dagEngine.getNodeResults(planId);
   }
 }
 

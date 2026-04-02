@@ -29,19 +29,18 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
   onInteractionResult}: EmbeddedWebViewProps, ref) {
   const [status, setStatus] = useState<WebViewStatus>('loading');
   const [retryCount, setRetryCount] = useState(0);
-  const [scale, setScale] = useState(1);
+  const [scale, setScale] = useState(0.3125);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
     const observer = new ResizeObserver(entries => {
-      if (entries[0]) {
+      if (entries[0] && entries[0].contentRect.width > 0) {
         setScale(entries[0].contentRect.width / 1280);
       }
     });
-    observer.observe(containerRef.current);
+    if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
 
