@@ -148,7 +148,7 @@ const EmbeddedWebView = forwardRef<EmbeddedWebViewHandle, EmbeddedWebViewProps>(
       if (status === 'loading') {
         updateStatus('blocked');
       }
-    }, 5000);
+    }, 15000);
 
     return () => {
       if (loadTimeoutRef.current) {

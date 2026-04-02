@@ -196,6 +196,9 @@ export default function App() {
         // Wait for React to render the iframe into the DOM
         await new Promise(r => setTimeout(r, 100));
 
+        // Inject canvas node ID into tool arguments so the iframe targeting system can locate it
+        toolCall.arguments.canvasNodeId = webViewNode.id;
+
         // Now execute the tool (which sends postMessage to the iframe)
         result = await toolRegistry.executeTool(toolCall);
       } else {
@@ -264,7 +267,7 @@ export default function App() {
             status: 'loading'
           },
           position: { x: 100 + canvasNodes.length * 20, y: 100 + canvasNodes.length * 20 },
-          size: { width: 400, height: 300 },
+          size: { width: 800, height: 600 },
           title: title,
           createdAt: Date.now(),
           source: { type: 'web', ref: url }

@@ -1,6 +1,6 @@
 ﻿# canvas-coworker Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-01
+Auto-generated from all feature plans. Last updated: 2026-04-02
 
 ## Active Technologies
 - TypeScript 5.x / JavaScript ES2022 + React 18+
@@ -19,6 +19,7 @@ Auto-generated from all feature plans. Last updated: 2026-04-01
 - TypeScript 5.x (ES2022) + JavaScript ES2022 (014-bundle-model-inference)
 - TypeScript 5.x (ES2022) + JavaScript ES2022 + React 18+, Vite 5.x, Chrome Extensions MV3, Tailwind CSS 3.x (015-fix-iframe-targeting)
 - In-memory (React state for sessions); chrome.storage for extension config (015-fix-iframe-targeting)
+- TypeScript 5.x (ES2022) + JavaScript ES2022 + React 18+ + Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3 (017-fix-iframe-id-mismatch)
 
 ## Project Structure
 
@@ -117,9 +118,9 @@ window.__canvasNodes // Current canvas state
 | Model Bundling | `public/models/Xenova/all-MiniLM-L6-v2/`, `src/popup/services/semanticExtractor.ts`, `vite.config.js` |
 
 ## Recent Changes
+- 017-fix-iframe-id-mismatch: Added TypeScript 5.x (ES2022) + JavaScript ES2022 + React 18+ + Vite 5.x, Tailwind CSS 3.x, Chrome Extensions MV3
 - 015-fix-iframe-targeting: Added TypeScript 5.x (ES2022) + JavaScript ES2022 + React 18+, Vite 5.x, Chrome Extensions MV3, Tailwind CSS 3.x
 - 014-bundle-model-inference: Bundled Xenova/all-MiniLM-L6-v2 model locally, added build validation, enabled offline inference
-- 013-semantic-lookup-tool: Replaced price-specific logic with universal semantic chunk extraction, added hybrid payload structure
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
