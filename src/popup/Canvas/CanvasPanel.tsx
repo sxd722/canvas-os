@@ -10,7 +10,7 @@ interface CanvasPanelProps {
   highlightedNodeId?: string | null;
 }
 
-/** Build SVG paths for DAG dependency arrows */
+/** Build SVG paths for DAG dependency arrows with status-based coloring */
 function buildDAGEdges(nodes: CanvasNode[]): { paths: string; defs: string } {
   const dagNodes = nodes.filter(n => n.type === 'dag-node');
   if (dagNodes.length === 0) return { paths: '', defs: '' };
@@ -19,11 +19,15 @@ function buildDAGEdges(nodes: CanvasNode[]): { paths: string; defs: string } {
   const edgePaths: string[] = [];
 
   for (const node of dagNodes) {
-    const content = node.content as { dependencies?: string[] } | undefined;
+    const content = node.content as { dependencies?: string[]; status?: string } | undefined;
     if (!content?.dependencies) continue;
 
     const targetX = node.position.x + node.size.width / 2;
     const targetY = node.position.y;
+
+    const status = content.status || 'pending';
+    const strokeColor = status === 'running' ? '#3b82f6' : status === 'success' ? '#22c55e' : '#4b5563';
+    const strokeDash = status === 'running' ? ' stroke-dasharray="5,5"' : '';
 
     for (const depId of content.dependencies) {
       const parentId = `dag-node-${depId}`;
@@ -35,7 +39,7 @@ function buildDAGEdges(nodes: CanvasNode[]): { paths: string; defs: string } {
       const midY = (sourceY + targetY) / 2;
 
       edgePaths.push(
-        `M ${sourceX} ${sourceY} C ${sourceX} ${midY}, ${targetX} ${midY}, ${targetX} ${targetY}`
+        `<path d="M ${sourceX} ${sourceY} C ${sourceX} ${midY}, ${targetX} ${midY}, ${targetX} ${targetY}" fill="none" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round"${strokeDash}/>`
       );
     }
   }
@@ -43,8 +47,8 @@ function buildDAGEdges(nodes: CanvasNode[]): { paths: string; defs: string } {
   if (edgePaths.length === 0) return { paths: '', defs: '' };
 
   return {
-    paths: edgePaths.map(d => `<path d="${d}" fill="none" stroke="#4B5563" stroke-width="2" stroke-linecap="round"/>`).join(''),
-    defs: `<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4B5563"/></marker>`
+    paths: edgePaths.join(''),
+    defs: ''
   };
 }
 
@@ -111,7 +115,7 @@ export default function CanvasPanel({ nodes, onNodesChange, highlightedNodeId }:
     }));
   }, []);
 
-  const { paths, defs } = useMemo(() => buildDAGEdges(nodes), [nodes]);
+  const { paths } = useMemo(() => buildDAGEdges(nodes), [nodes]);
 
   return (
     <div 
@@ -125,7 +129,7 @@ export default function CanvasPanel({ nodes, onNodesChange, highlightedNodeId }:
       <InfiniteCanvas offset={canvasState.offset} scale={canvasState.scale}>
         {paths && (
           <svg className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible', width: 1, height: 1 }}>
-            <defs>{defs}</defs>
+            <style>{`@keyframes march { to { stroke-dashoffset: -10; } }`}</style>
             <g>{paths}</g>
           </svg>
         )}

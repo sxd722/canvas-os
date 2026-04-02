@@ -205,6 +205,23 @@ export default function App() {
       if (toolCall.name === 'execute_dag') {
         const nodes = toolCall.arguments.nodes as unknown[];
         
+        const getDepth = (id: string): number => {
+          const n = (nodes as any[]).find(x => x.id === id);
+          return n && n.dependencies?.length ? Math.max(...n.dependencies.map((d: any) => getDepth(d))) + 1 : 0;
+        };
+
+        const nodesWithDepth = (nodes as any[]).map(node => ({ ...node, depth: getDepth(node.id) }));
+        const depthGroups = new Map<number, any[]>();
+        for (const n of nodesWithDepth) {
+          const group = depthGroups.get(n.depth) || [];
+          group.push(n);
+          depthGroups.set(n.depth, group);
+        }
+        const indexInDepth = new Map<string, number>();
+        for (const [, group] of depthGroups) {
+          group.forEach((n, i) => indexInDepth.set(n.id, i));
+        }
+        
         const dagCanvasNodes = (nodes as any[]).map((node): CanvasNode => ({
           id: `dag-node-${node.id}`,
           type: 'dag-node',
@@ -215,7 +232,10 @@ export default function App() {
             dependencies: node.dependencies || [],
             status: 'pending'
           },
-          position: { x: Math.random() * 500, y: Math.random() * 500 },
+          position: {
+            x: 100 + (getDepth(node.id) * 350),
+            y: 100 + ((indexInDepth.get(node.id) || 0) * 200)
+          },
           size: { width: 250, height: 150 },
           createdAt: Date.now()
         }));

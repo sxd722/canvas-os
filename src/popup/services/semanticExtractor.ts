@@ -243,14 +243,13 @@ export async function scoreElements(
 ): Promise<ScoreableItem[]> {
   if (elements.length === 0) return [];
 
-  // Try embedding-based scoring first
-  const embeddingResult = await scoreElementsEmbedding(intent, elements, topN);
-  if (embeddingResult) {
-    return embeddingResult.filter(el => el.relevanceScore > 0.35);
+  const sorted = await scoreElementsEmbedding(intent, elements, topN);
+  if (!sorted) {
+    return scoreElementsTfIdf(intent, elements, topN);
   }
 
-  // Fall back to TF-IDF
-  return scoreElementsTfIdf(intent, elements, topN).filter(el => el.relevanceScore > 0.35);
+  const filtered = sorted.filter(el => el.relevanceScore > 0.35);
+  return filtered.length === 0 ? sorted.slice(0, 3) : filtered;
 }
 
 // --- Heuristic fallback: build page summary from structured data ---

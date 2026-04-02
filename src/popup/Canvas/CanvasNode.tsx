@@ -172,25 +172,6 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
                                 <span className="text-xs text-blue-400">Executing...</span>
                             </div>
                         )}
-                        {dagContent.error && (
-                            <div className="p-2 bg-red-950 border border-red-800 rounded text-xs text-red-200">
-                                <div className="font-semibold text-red-400 mb-1">Error</div>
-                                <div className="whitespace-pre-wrap overflow-auto max-h-24">
-                                    {typeof dagContent.error === 'string' ? dagContent.error : JSON.stringify(dagContent.error, null, 2)}
-                                </div>
-                            </div>
-                        )}
-                        {dagContent.result !== undefined && dagContent.status === 'success' && (
-                            <div className="p-2 bg-green-950 border border-green-800 rounded text-xs text-green-200">
-                                <div className="font-semibold text-green-400 mb-1 flex items-center gap-1">
-                                    <span>Result</span>
-                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-600 text-white text-[10px]">✓</span>
-                                </div>
-                                <pre className="whitespace-pre-wrap overflow-auto max-h-24">
-                                    {typeof dagContent.result === 'string' ? dagContent.result : JSON.stringify(dagContent.result, null, 2)}
-                                </pre>
-                            </div>
-                        )}
                     </div>
                 );
             case 'web-view': {
@@ -237,13 +218,15 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
                 ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-900'
                 : '';
 
+    const dagContent = node.type === 'dag-node' ? node.content as DAGNodeContent : null;
+
     return (
         <div
-            className={`absolute bg-gray-800 rounded-lg border-2 ${getNodeColor()} shadow-lg cursor-move select-none ${statusRing}`}
+            className="absolute"
             style={{
                 left: node.position.x,
                 top: node.position.y,
-                width: node.size.width,
+                width: dagContent ? 'auto' : node.size.width,
                 minHeight: node.size.height
             }}
             onMouseDown={handleMouseDown}
@@ -251,12 +234,40 @@ export default function CanvasNodeComponent({ node, onDrag, isHighlighted = fals
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
         >
-            <div className="p-3">
-                {node.title && (
-                    <h3 className="text-sm font-medium text-gray-200 mb-2 truncate">{node.title}</h3>
-                )}
-                {renderContent()}
+            <div
+                className={`relative bg-gray-800 rounded-lg border-2 ${getNodeColor()} shadow-lg cursor-move select-none ${statusRing}`}
+                style={{ width: node.size.width, minHeight: node.size.height }}
+            >
+                <div className="p-3">
+                    {node.title && (
+                        <h3 className="text-sm font-medium text-gray-200 mb-2 truncate">{node.title}</h3>
+                    )}
+                    {renderContent()}
+                </div>
             </div>
+            {dagContent && dagContent.error && (
+                <div className="absolute top-0 w-72 p-3 bg-gray-800 border border-gray-600 rounded-lg shadow-xl overflow-y-auto max-h-[300px]" style={{ right: -308 }}>
+                    <div className="p-2 bg-red-950 border border-red-800 rounded text-xs text-red-200">
+                        <div className="font-semibold text-red-400 mb-1">Error</div>
+                        <div className="whitespace-pre-wrap overflow-auto max-h-24">
+                            {typeof dagContent.error === 'string' ? dagContent.error : JSON.stringify(dagContent.error, null, 2)}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {dagContent && dagContent.result !== undefined && dagContent.status === 'success' && (
+                <div className="absolute top-0 w-72 p-3 bg-gray-800 border border-gray-600 rounded-lg shadow-xl overflow-y-auto max-h-[300px]" style={{ right: -308 }}>
+                    <div className="p-2 bg-green-950 border border-green-800 rounded text-xs text-green-200">
+                        <div className="font-semibold text-green-400 mb-1 flex items-center gap-1">
+                            <span>Result</span>
+                            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-600 text-white text-[10px]">&#10003;</span>
+                        </div>
+                        <pre className="whitespace-pre-wrap overflow-auto max-h-24">
+                            {typeof dagContent.result === 'string' ? dagContent.result : JSON.stringify(dagContent.result, null, 2)}
+                        </pre>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
