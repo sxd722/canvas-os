@@ -67,6 +67,18 @@ export class ToolTester {
         case 'read_webpage_content':
           result = await this.testReadWebpageContent(args);
           break;
+        case 'browse_webview':
+          result = await this.delegateToToolRegistry(toolName, args);
+          break;
+        case 'interact_webview':
+          result = await this.delegateToToolRegistry(toolName, args);
+          break;
+        case 'navigate_webview_back':
+          result = await this.delegateToToolRegistry(toolName, args);
+          break;
+        case 'extract_webview_content':
+          result = await this.delegateToToolRegistry(toolName, args);
+          break;
         default:
           throw new Error(`Unknown tool: ${toolName}`);
       }
@@ -300,6 +312,63 @@ export class ToolTester {
       toolName: 'read_webpage_content',
       duration: 0,
       output: { url, mode, timeout, testMode: true }
+    };
+  }
+
+  private async delegateToToolRegistry(toolName: string, args: Record<string, unknown>): Promise<ToolTestResult> {
+    let enrichedArgs = args;
+
+    if (toolName === 'browse_webview') {
+      const url = args.url as string;
+      const title = (args.title as string) || new URL(url).hostname;
+      const nodeId = generateId();
+
+      this.setCanvasNodes(prev => {
+        const webViewNode: CanvasNode = {
+          id: nodeId,
+          type: 'web-view',
+          content: { url, title, status: 'loading' },
+          position: { x: 100 + prev.length * 20, y: 100 + prev.length * 20 },
+          size: { width: 800, height: 600 },
+          title,
+          createdAt: Date.now(),
+          source: { type: 'test', ref: `test-${Date.now()}` }
+        };
+        return [...prev, webViewNode];
+      });
+
+      enrichedArgs = { ...args, canvasNodeId: nodeId };
+
+      this.setMessages(prev => [...prev, {
+        id: generateId(),
+        role: 'assistant',
+        content: `[TEST] browse_webview: created canvas node ${nodeId}, delegating to toolRegistry`,
+        timestamp: Date.now()
+      }]);
+    }
+
+    const registryResult = await toolRegistry.executeTool({
+      name: toolName,
+      arguments: enrichedArgs
+    });
+
+    const raw = registryResult as unknown as Record<string, unknown>;
+    const success = !!raw.success;
+    const error = !success ? String(raw.error || 'toolRegistry returned failure') : undefined;
+
+    this.setMessages(prev => [...prev, {
+      id: generateId(),
+      role: 'assistant',
+      content: `[TEST] ${toolName} via toolRegistry: ${success ? 'OK' : `FAILED: ${error}`}`,
+      timestamp: Date.now()
+    }]);
+
+    return {
+      success,
+      toolName,
+      duration: 0,
+      output: raw,
+      error
     };
   }
 
