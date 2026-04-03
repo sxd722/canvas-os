@@ -243,10 +243,19 @@ export async function scoreElements(
 ): Promise<ScoreableItem[]> {
   if (elements.length === 0) return [];
 
-  const sorted = await scoreElementsEmbedding(intent, elements, topN);
-  if (!sorted) {
-    return scoreElementsTfIdf(intent, elements, topN);
-  }
+  const [embResults, tfidfResults] = await Promise.all([
+    scoreElementsEmbedding(intent, elements, elements.length),
+    Promise.resolve(scoreElementsTfIdf(intent, elements, elements.length))
+  ]);
+
+  const merged = elements.map(el => {
+    const embScore = embResults?.find(s => s.text === el.text && s.description === el.description)?.relevanceScore ?? 0;
+    const tfidfScore = tfidfResults.find(s => s.text === el.text && s.description === el.description)?.relevanceScore ?? 0;
+    const hybridScore = (embScore * 0.7) + (tfidfScore * 0.3);
+    return { text: el.text, description: el.description, relevanceScore: hybridScore, element: el.element };
+  });
+
+  const sorted = merged.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, topN);
 
   const filtered = sorted.filter(el => el.relevanceScore > 0.35);
   return filtered.length === 0 ? sorted.slice(0, 3) : filtered;

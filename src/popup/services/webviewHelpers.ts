@@ -113,7 +113,7 @@ export function waitForExtraction(nonce: string, sessionId: string, intent: stri
 
               scoredElements = scored.map((el: { text: string; description: string; relevanceScore?: number; element: any }) => {
                 return {element: el.element, relevanceScore: el.relevanceScore};
-              }).filter(c => (c.relevanceScore as number) > 0.35);;
+              }).filter(c => (c.relevanceScore as number) > 0);
             }
 
             let scoredChunks = undefined;
@@ -121,7 +121,7 @@ export function waitForExtraction(nonce: string, sessionId: string, intent: stri
               const scored = await scoreElements(intent, chunksToScore);
               scoredChunks = scored.map((chunk) => {
                 return {element: chunk.element, relevanceScore: chunk.relevanceScore};
-              }).filter(c => (c.relevanceScore as number) > 0.35);
+              }).filter(c => (c.relevanceScore as number) > 0);
             }
 
             resolve({
