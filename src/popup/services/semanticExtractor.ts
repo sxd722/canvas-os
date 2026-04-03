@@ -17,6 +17,42 @@ let modelLoading = false;
 let modelLoadFailed = false;
 
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+const RERANKER_MODEL_ID = 'Xenova/ms-marco-MiniLM-L-6-v2';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let rerankerPipeline: any = null;
+let rerankerLoading = false;
+let rerankerLoadFailed = false;
+
+async function getRerankerPipeline(): Promise<Awaited<ReturnType<typeof pipeline>> | null> {
+  if (rerankerPipeline) return rerankerPipeline;
+  if (rerankerLoadFailed) return null;
+
+  if (rerankerLoading) {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (rerankerPipeline) resolve(rerankerPipeline);
+        else if (rerankerLoadFailed) resolve(null);
+        else setTimeout(check, 100);
+      };
+      check();
+    });
+  }
+
+  rerankerLoading = true;
+  try {
+    console.log(`[semanticExtractor] Loading reranker model: ${RERANKER_MODEL_ID}...`);
+    rerankerPipeline = await pipeline('text-classification', RERANKER_MODEL_ID);
+    console.log('[semanticExtractor] Reranker model loaded successfully');
+    return rerankerPipeline;
+  } catch (err) {
+    console.warn('[semanticExtractor] Failed to load reranker model:', err);
+    rerankerLoadFailed = true;
+    return null;
+  } finally {
+    rerankerLoading = false;
+  }
+}
 
 async function getEmbeddingPipeline(): Promise<Awaited<ReturnType<typeof pipeline>> | null> {
   if (embeddingPipeline) return embeddingPipeline;
@@ -223,6 +259,77 @@ function scoreElementsTfIdf(
     .slice(0, topN);
 }
 
+// --- Cross-Encoder Re-ranker ---
+
+async function rerankElements(
+  intent: string,
+  elements: ScoreableItem[]
+): Promise<ScoreableItem[]> {
+  const pipe = await getRerankerPipeline();
+  if (!pipe || elements.length === 0) return elements;
+
+  const pairs: string[][] = elements.map(el => [intent, `${el.text} ${el.description}`]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const output: any = await (pipe as any)(pairs as any, { top_k: elements.length });
+  const results: Array<{ score: number }> = Array.isArray(output) ? output : [output];
+
+  return elements.map((el, i) => ({
+    ...el,
+    relevanceScore: results[i]?.score ?? el.relevanceScore
+  }));
+}
+
+// --- LLM Abstraction Layer ---
+
+// TODO: Inject WebGPU or external LLM formatting logic here.
+// This function will eventually send reranked elements to an LLM
+// for structured extraction, summarization, or answer generation.
+// The llmConfig parameter will control which LLM provider to use
+// (WebGPU, API-based, etc.).
+export async function extractWithLLM(
+  intent: string,
+  rerankedElements: ScoreableItem[],
+  _llmConfig?: Record<string, unknown>
+): Promise<{ status: string; reason?: string; llm_extraction?: string; elements: ScoreableItem[] }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!(navigator as any).gpu) {
+    console.log('[semanticExtractor] No WebGPU support, bypassing LLM extraction');
+    return { status: 'bypassed', reason: 'No WebGPU support', elements: rerankedElements };
+  }
+
+  try {
+    const worker = new Worker(
+      new URL('../workers/localExtractionWorker.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    const elementsForLLM = rerankedElements.map(el => ({
+      text: el.text,
+      description: el.description,
+      relevanceScore: el.relevanceScore
+    }));
+
+    const result: { status: string; text?: string; error?: string } = await new Promise((resolve, reject) => {
+      worker.onmessage = (e: MessageEvent) => resolve(e.data);
+      worker.onerror = (e: ErrorEvent) => reject(new Error(e.message));
+      worker.postMessage({ intent, elements: elementsForLLM });
+    });
+
+    worker.terminate();
+
+    if (result.status === 'success' && result.text) {
+      console.log('[semanticExtractor] WebGPU LLM extraction succeeded');
+      return { status: 'success', llm_extraction: result.text, elements: rerankedElements };
+    }
+
+    console.warn('[semanticExtractor] WebGPU LLM extraction failed:', result.error);
+    return { status: 'bypassed', reason: 'LLM extraction failed', elements: rerankedElements };
+  } catch (err) {
+    console.warn('[semanticExtractor] WebGPU worker error:', err);
+    return { status: 'bypassed', reason: 'Worker creation failed', elements: rerankedElements };
+  }
+}
+
 // --- Public API ---
 
 export interface ScoreableItem {
@@ -243,6 +350,7 @@ export async function scoreElements(
 ): Promise<ScoreableItem[]> {
   if (elements.length === 0) return [];
 
+  // Stage 1: Hybrid Search (Embedding 70% + TF-IDF 30%)
   const [embResults, tfidfResults] = await Promise.all([
     scoreElementsEmbedding(intent, elements, elements.length),
     Promise.resolve(scoreElementsTfIdf(intent, elements, elements.length))
@@ -255,10 +363,15 @@ export async function scoreElements(
     return { text: el.text, description: el.description, relevanceScore: hybridScore, element: el.element };
   });
 
-  const sorted = merged.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, topN);
+  const stage1 = merged.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, topN);
 
-  const filtered = sorted.filter(el => el.relevanceScore > 0.35);
-  return filtered.length === 0 ? sorted.slice(0, 3) : filtered;
+  // Stage 2: Cross-Encoder Re-ranker
+  const reranked = await rerankElements(intent, stage1);
+  const stage2 = reranked.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  // Dynamic thresholding and safety fallback
+  const filtered = stage2.filter(el => el.relevanceScore > 0.35);
+  return filtered.length === 0 ? stage2.slice(0, 5) : filtered;
 }
 
 // --- Heuristic fallback: build page summary from structured data ---

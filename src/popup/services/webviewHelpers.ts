@@ -1,5 +1,5 @@
 import { PageExtraction } from '../../shared/types';
-import { scoreElements } from './semanticExtractor';
+import { scoreElements, extractWithLLM } from './semanticExtractor';
 
 // --- Webview postMessage Helpers ---
 
@@ -124,10 +124,14 @@ export function waitForExtraction(nonce: string, sessionId: string, intent: stri
               }).filter(c => (c.relevanceScore as number) > 0);
             }
 
+            const llmElementsResult = await extractWithLLM(intent, scoredElements ? (scoredElements.length > 0 ? scoredElements : interactiveElements.slice(0, 5)) : interactiveElements.slice(0, 5));
+            const llmChunksResult = await extractWithLLM(intent, scoredChunks ? (scoredChunks.length > 0 ? scoredChunks : informationChunks.slice(0, 5)) : informationChunks.slice(0, 5));
+
             resolve({
               ...payload,
-              interactive_elements: scoredElements ? (scoredElements.length > 0 ? scoredElements : interactiveElements.slice(0, 5)) : interactiveElements.slice(0, 5),
-              information_chunks: scoredChunks ? (scoredChunks.length > 0 ? scoredChunks : informationChunks.slice(0, 5)) : informationChunks.slice(0, 5),
+              interactive_elements: llmElementsResult.elements,
+              information_chunks: llmChunksResult.elements,
+              llm_extraction: llmElementsResult.llm_extraction || llmChunksResult.llm_extraction || '',
               extractionMethod: 'tfidf',
               success: true
             });
