@@ -9,7 +9,7 @@
  * Falls back to TF-IDF if the embedding model fails to load.
  */
 
-import { pipeline } from '@xenova/transformers';
+import { pipeline } from '@huggingface/transformers';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let embeddingPipeline: any = null;
@@ -54,7 +54,8 @@ async function getRerankerPipeline(): Promise<Awaited<ReturnType<typeof pipeline
   }
 }
 
-async function getEmbeddingPipeline(): Promise<Awaited<ReturnType<typeof pipeline>> | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getEmbeddingPipeline(): Promise<any> {
   if (embeddingPipeline) return embeddingPipeline;
   if (modelLoadFailed) return null;
 

@@ -33,7 +33,7 @@ interface DebugFunctions {
 const ENDPOINTS: Record<string, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
-  glm: 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
+  glm: 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions'
 };
 
 const CODE_PATTERN = /```(?:javascript|js)?\s*([\s\S]*?)```/g;

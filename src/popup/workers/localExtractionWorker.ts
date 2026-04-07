@@ -1,9 +1,10 @@
-import { pipeline, env } from '@xenova/transformers';
+import { pipeline, env } from '@huggingface/transformers';
 
 env.allowLocalModels = true;
 env.localModelPath = '/models/';
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const wasmBackends = (env.backends as any)?.onnx?.wasm;
+if (wasmBackends) wasmBackends.numThreads = 1;
 let generator: any = null;
 let loading = false;
 

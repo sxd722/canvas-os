@@ -67,9 +67,12 @@ export default defineConfig({
       }
     }
   },
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src')
-    }
-  }
+  optimizeDeps: {
+    exclude: ['@huggingface/transformers']
+  },
+  worker: {
+    format: 'es'
+  },
+
 });
+
